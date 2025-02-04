@@ -1,49 +1,43 @@
 from pileupsim import Pileupsim
-import sixtesoft
 from sim_ero_pileup import write_bbody_parfile,write_slurm_script
-import config
 
 import numpy as np
-import os
-
-k = 8.617333262145e-5  # Boltzmann constant [eV/K]
 
 # Define the fluxes you want to simulate, in erg/cm^2/s and in
 # energyband given by EMIN, EMAX in config.py
-fluxes = np.linspace(1.0e-10, 1.0e-7, 10)
+fluxes = np.logspace(-10, -8, 20)
 
-# Define the simulated absorption columns in units of 10^22 cm^-2
-nhs = [1.0]
-
-# Define the simulated temperatures in units of eV
-kts = np.linspace(20, 1000, 10)
-
-# Parameters specific to the parallelization via Slurm
-WALLTIME = "3-24:00:00"
-SLURMFILE = "sim_ero_pileup.slurm"
-JOBNAME = "ero_pileup"
-QUEUE = "dlr"
-MEMORY = "2G"
-
-
+nhs = [1.0]  # [10^22 cm^-2]
+# gammas = np.linspace(1.7, 2.5, 10)
+kts = np.linspace(30, 100, 100)  # [eV]
 
 def main():
-    cmds = []
+    # cmds = []
+    total = len(fluxes) * len(nhs) * len(kts)
+    counter = 0
 
     for nh in nhs:
         for kt in kts:
-            
             # Write the spectrum file. As the source flux is scaled up in
             # the SIMPUT via Src_Flux parameter, the normalization
-            # doesn't matter and we can use the same spectrum file for
+            # doesn't matter, and we can use the same spectrum file for
             # all fluxes and only change it if we change N_H/kT
             parfile = write_bbody_parfile(nh, kt)
 
             for flux in fluxes:
-                cmds.append(f"python3 {os.getcwd()}/run.py --flux={flux} --parfile={parfile}")
+                print(f"Counter: {counter+1}/{total}, flux: {flux} cgs, N_H = {nh} e22 cm-2, kt = {kt} eV")
+                pileupsim = Pileupsim(flux = flux, parfile = parfile, background = "no",
+                                      verbose = -1, clobber = "yes")
 
-    write_slurm_script(cmds)
+                pileupsim.create_simput()
+                pileupsim.run_sixtesim()
+                pileupsim.run_makespec()
+                pileupsim.clean_up()
 
+                #cmds.append(f"python3 {os.getcwd()}/run.py --flux={flux} --parfile={parfile}")
+                counter += 1
+
+    #write_slurm_script(cmds)
 
 if __name__ == "__main__":
     main()
