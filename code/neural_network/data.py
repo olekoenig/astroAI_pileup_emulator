@@ -9,12 +9,6 @@ import config
 
 class PileupDataset(Dataset):
     def __init__(self, input_files, target_files, transform=None):
-        """
-        Args:
-            input_files (list): List of file paths for input FITS files.
-            target_files (list): List of file paths for target FITS files.
-            transform (callable, optional): A function/transform to apply to the input data.
-        """
         self.input_files = input_files
         self.target_files = target_files
         self.transform = transform
@@ -53,7 +47,10 @@ def get_src_flux_from_filename(fname):
 
 def load_and_split_dataset():
     piledup = glob.glob(config.SPECDIR + "*cgs*.fits")
-    # piledup = [fname for fname in piledup if get_src_flux_from_filename(fname) <= 1e-10]
+
+    # Perform filtering on source flux
+    piledup = [fname for fname in piledup if get_src_flux_from_filename(fname) <= 1e-10]
+
     nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
 
     torch.manual_seed(config.DATALOADER_RANDOM_SEED)
@@ -61,16 +58,17 @@ def load_and_split_dataset():
     dataset = PileupDataset(piledup, nonpiledup)
 
     if len(dataset[0][0]) != 1024:
-        exit("Input dimension must be 1024")
+        exit(f"Input dimension must be 1024 but is {dataset[0][0]}.")
 
     train_size = int(0.7 * len(dataset))
-    val_size = int(0.15 * len(dataset))
+    val_size = int(0.25 * len(dataset))
     test_size = len(dataset) - train_size - val_size  # Ensure all samples are used
 
+    # Use class inheriting the PileupDataset in order to access the filenames
+    # (which contain the spectral parameter and flux information)
     train_dataset, val_dataset, test_dataset = [
     SubsetWithFilenames(dataset, split.indices) for split in random_split(dataset,[train_size, val_size, test_size])
     ]
-
-    #train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+    # train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
     return train_dataset, val_dataset, test_dataset

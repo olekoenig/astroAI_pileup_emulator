@@ -26,19 +26,18 @@ EMIN = 0.2  #: [keV]
 EMAX = 2.0  #: [keV]
 
 # Parameters specific to the data paths and computational setup
-# XMLDIR = "/home/koenig/git/software/sixte_gits/instruments/srg/instruments/srg/erosita/"
 XMLDIR = os.getenv("HOME") + "/git/software/sixte_gits/instruments/srg/instruments/srg/erosita/"
 
-# Folders of temporary data products. If a big grid is calculated
-# some products should to be deleted after each run. The grid simulation is
-# sped up if one writes these files onto a local disk.
+# Folders of temporary data products (somewhere with high-speed I/O!).
+# If a big grid is calculated some products should to be deleted after each run.
+# The grid simulation is sped up if one writes these files onto a local disk.
 SCRATCHDIR = os.getenv("HOME") + "/scratch/"
 SIMPUTDIR = SCRATCHDIR + "simput/"
 EVTDIR = SCRATCHDIR + "evt/"
 ESASSDIR = SCRATCHDIR + "esass/"
 
 # Handling of the pfiles is important only when multiple simulations
-# are done in parallel and computed over the Remeis cluster via slurm.
+# are done in parallel.
 PFILESDIR = SCRATCHDIR + "pfiles/"
 HEASOFT_PFILES = os.getenv("HEADAS") + "/syspfiles"
 GLOBAL_PFILES_DIR = os.getenv("HOME") + "/pfiles"
