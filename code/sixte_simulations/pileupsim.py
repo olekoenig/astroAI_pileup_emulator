@@ -3,7 +3,7 @@ Author: Ole Koenig (ole.koenig@cfa.harvard.edu)
  
 A script to write a slurm script which creates eROSITA slew
 lightcurves for different fluxes for a piled-up source given a certain
-spectrum and using SIXTE's erosim.
+spectrum and using SIXTE's sixtesim.
 
 ----------
 Changelog:
@@ -25,7 +25,8 @@ Changelog:
 - 2024-08-09: Remove gtitype parameter from srctool (was removed in eSASS PipeProc030),
               Add automatic creation of output folders (spec/, lc/) as specified in config.py
               Rename 020 --> 820 as per eSASS convention (lightleak cannot be simulated)
-- 2025-01-22: Move simputfile call into new wrapper within sixtesoft, add sixtesim
+- 2025-01-22: Move simputfile call into new wrapper within sixtesoft,
+              Add sixtesim wrapper, add makespec commands and impact list creation
 
 ------
 To Do:
@@ -39,15 +40,9 @@ To Do:
 -----
 Bugs:
 -----
-    self._make_scratch_dirs()
-  File "/home/koenig/work/erosita/pileup/pileupsoft/pileupsim.py", line 145, in _make_scratch_dirs
-    if not os.path.exists(config.SIMPUTDIR): os.makedirs(config.SIMPUTDIR)
-  File "/usr/lib/python3.8/os.py", line 223, in makedirs
-    mkdir(name, mode)
-FileExistsError: [Errno 17] File exists: '/scratch1/koenig/simput/'
 
---> Folder is created by a different job. Added option exist_ok=True. Bug fixed?
-
+* Potential bug in creation of scratch folders when launching parallelized jobs
+  on the same machine (folder can be already created by a different job).
 """
 
 from pandas import read_csv
@@ -67,34 +62,42 @@ import sixtesoft
 class Pileupsim:
 
     def __init__(self, flux, parfile,
-                 n_sim=1, shortname="0", verbose=0, clobber="no"):
+                 background = "yes",
+                 n_sim=1, shortname="0", write_impactlist=False, verbose=0, clobber="no"):
         """
         :param flux: Flux of the source in units of erg/cm^2/s
         :param parfile: Parameter file in ISIS notation
         :param n_sim: Number of simulations to be averaged over
         :param shortname: A (unique) file naming for mathpha
+        :param write_impactlist: Set to True if non-piledup spectrum should be written
         :param verbose: Verbosity control (-1: write no logfile) [default: 0]
         :param clobber: Clobber [default: no]
         """
         
         self.flux = flux
         self.parfile = parfile
+        self.background = background
         self.isisprep = config.ISISPREP if config.ISISPREP else "none"
         self.n_sim = n_sim
         self.shortname = shortname  # see help of averageSpectra()
+        self.write_impactlist = write_impactlist
         self.verbose = verbose
 
         # Define the names of the output files
         self.specparams = self._get_parameters_from_parfile(parfile)
         self.basename = self._get_basename(flux, self.specparams)
-        self.finalSpectrumName = f"{config.SPECDIR}{self.basename}_820_SourceSpec_00001.fits"
+
+        self.evtfile_suffix = "piledup.fits"
+        
+        # self.finalSpectrumName = f"{config.SPECDIR}{self.basename}_820_SourceSpec_00001.fits"
+        self.finalSpectrumName = f"{config.SPECDIR}{self.basename}_{self.evtfile_suffix}"
 
         if clobber == "no":
-            self.checkIfFinalSpectrumExistent()
+            self.check_if_final_spectrum_existent()
 
         self._make_scratch_dirs()
 
-        # Change into /scratch directory on hard-drive of machine. Otherwise
+        # Change into /scratch directory on hard-drive of machine, otherwise
         # temporary files are stored in /home, which slows down the simulation.
         os.chdir(config.SCRATCHDIR)
             
@@ -102,17 +105,17 @@ class Pileupsim:
 
         if self.verbose >= 0:
             self.logfile = f"{config.LOGDIR}{self.basename}.log"
+            print(f"Logfile: {self.logfile}")
             self.chatter = self.verbose
         else:
             self.logfile = None
             self.chatter = 0
         
-        self.pfiles_dir = config.PFILESDIR + self.basename
         self.simputname = f"{config.SIMPUTDIR}{self.basename}.simput"
-        self.evtfilelist = ["{}{}_ccd{}_piledup.fits".format(config.EVTDIR, self.basename, tm)
-                            for tm in config.ACTIVE_TMS]
+        self.evtfilelist = ["{}{}_tel{}_{}".format(config.EVTDIR, self.basename,
+                                tm, self.evtfile_suffix) for tm in config.ACTIVE_TMS]
         self.merged_evtfile = f"{config.EVTDIR}{self.basename}.fits"
-        self.ero_caleventslist = ["{}ero_calevents_{}_ccd{}.fits".format(config.ESASSDIR, self.basename, tm)
+        self.ero_caleventslist = ["{}ero_calevents_{}_tel{}.fits".format(config.ESASSDIR, self.basename, tm)
                                   for tm in config.ACTIVE_TMS]
         self.finalImgName = f"{config.IMGDIR}{self.basename}_820_SkyImage.img"
         self.finalLCName = f"{config.LCDIR}{self.basename}_820_LightCurve.fits"
@@ -122,17 +125,24 @@ class Pileupsim:
         self.lclist = []
         self.areascal = 1.0  # AREASCAL should be the same in all spectra
 
-        # Handle log file and data storage area
+        if self.write_impactlist:
+            self.implist_suffix = "nonpiledup.fits"
+            self.impfilelist = ["{}{}_tel{}_{}".format(config.EVTDIR, self.basename,
+                                tm, self.implist_suffix) for tm in config.ACTIVE_TMS]
+            self.impactListSpectrum = f"{config.SPECDIR}{self.basename}_{self.implist_suffix}"
+            self.merged_impfile = f"{config.EVTDIR}{self.basename}_{self.implist_suffix}"
+
         if self.logfile and os.path.exists(self.logfile):
             os.remove(self.logfile)
 
-        # Define tools for PFILES
-        self.used_tools = ["simputfile", "simputsrc", "simputspec",
-                           "sixtesim",
-                           "ero_vis", "erosim", "runsixt", "ero_calevents", "makelc",
-                           "ftmerge", "fthedit", "fcalc", "mathpha",
-                           "radec2xy", "srctool", "evtool"]
-        self._write_pfiles()
+        if self.n_sim > 1:
+            self.pfiles_dir = config.PFILESDIR + self.basename
+            self.used_tools = ["simputfile", "simputsrc", "simputspec",
+                               "sixtesim",
+                               "ero_vis", "erosim", "runsixt", "ero_calevents", "makelc", "makespec",
+                               "ftmerge", "fthedit", "fcalc", "mathpha",
+                               "radec2xy", "srctool", "evtool"]
+            self._write_pfiles()
 
     @staticmethod
     def _get_parameters_from_parfile(parfile):
@@ -140,8 +150,8 @@ class Pileupsim:
         A parser to return a dictionary of the interesting.
         Currently, "interesting" is everything except for ".norm"
         """
-        df = read_csv(parfile, skiprows=2, delim_whitespace=True,
-                      names=['idx', 'param', 'tie-to', 'freeze', 'value', 'min', 'max', 'unit'])
+        df = read_csv(parfile, skiprows = 2, sep = r"\s+",
+                      names = ['idx', 'param', 'tie-to', 'freeze', 'value', 'min', 'max', 'unit'])
         ret_dict = dict()
         for index, row in df.iterrows():
             param = row['param'].split(".")[-1]
@@ -162,18 +172,7 @@ class Pileupsim:
         return ret_str
 
     @staticmethod
-    def _make_scratch_dirs():
-        """
-        Store the SIMPUT, event files, and single spectra on scratch disk.
-        """
-        os.makedirs(config.SCRATCHDIR, exist_ok=True)
-        os.makedirs(config.SIMPUTDIR, exist_ok=True)
-        os.makedirs(config.PFILESDIR, exist_ok=True)
-        os.makedirs(config.EVTDIR, exist_ok=True)
-        os.makedirs(config.ESASSDIR, exist_ok=True)
-
-    @staticmethod
-    def _softlinkSpectraToShortname(shortname, filelist):
+    def _softlink_spectra_to_shortname(shortname, filelist):
         filelist_short = []
         for n, file in enumerate(filelist):
             file_short = f"{shortname}{n}"
@@ -181,6 +180,17 @@ class Pileupsim:
             filelist_short.append(file_short)
         return filelist_short
     
+    def _make_scratch_dirs(self):
+        """
+        Store the SIMPUT, event files, and single spectra on scratch disk.
+        """
+        os.makedirs(config.SCRATCHDIR, exist_ok=True)
+        os.makedirs(config.SIMPUTDIR, exist_ok=True)
+        if self.n_sim > 0:
+            os.makedirs(config.PFILESDIR, exist_ok=True)
+        os.makedirs(config.EVTDIR, exist_ok=True)
+        os.makedirs(config.ESASSDIR, exist_ok=True)
+
     def _write_pfiles(self):
         """
         In order not to get any weird interference effects, copy the pfiles to a local directory
@@ -190,7 +200,22 @@ class Pileupsim:
             shutil.copyfile(f"{config.GLOBAL_PFILES_DIR}/{tool}.par", f"{self.pfiles_dir}/{tool}.par")
         os.environ["PFILES"] = f"{self.pfiles_dir};{config.HEASOFT_PFILES}"
 
-    def checkIfFinalSpectrumExistent(self):
+    def _check_area_scal(self, fp):
+        """
+        Check whether the AREASCAL keyword is the same in all spectra.
+        """
+        with fits.open(fp) as hdul:
+            if hdul[1].header['AREASCAL'] != self.areascal:
+                exit("ERROR: AREASCAL is {} in {}, not {}".format(hdul[0].header['AREASCAL'], fp, self.areascal))
+
+    def _add_keywords(self, fp):
+        self.execute(f"fthedit {fp} keyword=ANCRFILE operation=add value={os.path.basename(config.MASTER_ARF)}")
+        self.execute(f"fthedit {fp} keyword=RESPFILE operation=add value={os.path.basename(config.MASTER_RMF)}")
+        # EXPOSURE is not written unless ARF/ALL is specified in srctool.
+        # Not calculating the ARF speeds up the simulations significantly.
+        # self.execute(f"fthedit {fp} keyword=EXPOSURE operation=add value={self.exposure}")
+
+    def check_if_final_spectrum_existent(self):
         if os.path.isfile(self.finalSpectrumName):
             sys.exit(f"File {self.finalSpectrumName} is already calculated. Exiting.")
         elif self.verbose > 0:
@@ -212,7 +237,9 @@ class Pileupsim:
         """
         sixtesoft.simputfile(self.simputname, src_name = self.basename, srcflux = self.flux,
                              isisprep = self.isisprep, isisfile = self.parfile,
+                             elow = 0, eup = 15,
                              emin = config.EMIN, emax = config.EMAX,
+                             ra = config.RA, dec = config.DEC,
                              mjdref = config.MJDREF, chatter = self.chatter)
         if self.verbose > 0:
             print(f"Wrote simput {self.simputname}")
@@ -231,13 +258,15 @@ class Pileupsim:
     def run_erosim(self):
         """
         Wrapper around sixte's erosim: Run the actual SIXTE simulation with erosim. Background is on.
-
-        .. note:: Currently no impact list and raw event file created.
+        DEPRECATED SINCE SIXTE 3.0!
         """
-        
+        print("erosim is deprecated since SIXTE 3.0. Please use the run_sixtesim wrapper instead.")
         xmls = ["{}/erosita_{}.xml".format(config.XMLDIR, tm) for tm in range(1, 8)]
 
-        sixtesoft.erosim(*xmls, prefix=f"{config.EVTDIR}{self.basename}_", evtfile="piledup.fits",
+        impactlist = self.implist_suffix if self.write_impactlist else None
+        
+        sixtesoft.erosim(*xmls, prefix=f"{config.EVTDIR}{self.basename}_",
+                         evtfile=self.evtfile_suffix, implist=impactlist,
                          attitude=config.ATTITUDE_FILE,
                          # tstart=self.tstart, expos=self.exposure,
                          gtifile=config.MASTER_GTI,
@@ -247,40 +276,40 @@ class Pileupsim:
 
         # Delete the event files from TMs that are not active
         inactive_tms = [tm for tm in ["1", "2", "3", "4", "5", "6", "7"] if tm not in config.ACTIVE_TMS]
-        unused_evtfilelist = ["{}{}_ccd{}_piledup.fits".format(config.EVTDIR, self.basename, tm) for tm in inactive_tms]
+        unused_evtfilelist = ["{}{}_ccd{}_{}".format(config.EVTDIR, self.basename,
+                                                     tm, self.evtfile_suffix) for tm in inactive_tms]
         [os.remove(fp) for fp in unused_evtfilelist]
+        if self.write_impactlist:
+            unused_impfilelist = ["{}{}_tel{}_{}".format(config.EVTDIR, self.basename,
+                                    tm, self.implist_suffix) for tm in inactive_tms]
+            [os.remove(fp) for fp in unused_impfilelist]
                 
     def run_sixtesim(self):
         """
-        Wrapper around sixtesim: Run the actual SIXTE simulation. Background is on.
+        Wrapper around sixtesim: Run the actual SIXTE simulation.
         """
         
-        xmls = ",".join(["{}/erosita_{}.xml".format(config.XMLDIR, tm) for tm in range(1, 8)])
+        xmls = ",".join(["{}/erosita_{}.xml".format(config.XMLDIR, tm) for tm in config.ACTIVE_TMS])
 
-        sixtesoft.sixtesim(xmls, prefix=f"{config.EVTDIR}{self.basename}_", evtfile="piledup.fits",
-                         attitude=config.ATTITUDE_FILE,
-                         # tstart=self.tstart, expos=self.exposure,
-                         gtifile=config.MASTER_GTI,
-                         simput=self.simputname, background="yes",
-                         seed=-1, dt=config.DT, chatter=self.chatter, mjdref=config.MJDREF,
-                         logfile=self.logfile, test=False)
-
-        # Delete the event files from TMs that are not active
-        inactive_tms = [tm for tm in ["1", "2", "3", "4", "5", "6", "7"] if tm not in config.ACTIVE_TMS]
-        unused_evtfilelist = ["{}{}_ccd{}_piledup.fits".format(config.EVTDIR, self.basename, tm) for tm in inactive_tms]
-        [os.remove(fp) for fp in unused_evtfilelist]
+        sixtesoft.sixtesim(xmls, prefix=f"{config.EVTDIR}{self.basename}_",
+                           evtfile=self.evtfile_suffix,
+                           attitude=config.ATTITUDE_FILE,
+                           # tstart=self.tstart, expos=self.exposure,
+                           gtifile=config.MASTER_GTI,
+                           simput=self.simputname, background=self.background,
+                           seed=-1, dt=config.DT, chatter=self.chatter, mjdref=config.MJDREF,
+                           logfile=self.logfile, test=False)
 
     def merge_eventfiles(self):
         """
         Merge the event files from erosim with ftmerge
-
-        .. note:: Currently no impact files are merged
         """
         evtfilestr = " ".join(self.evtfilelist)
         self.execute(f"ftmerge \"{evtfilestr}\" {self.merged_evtfile} clobber=yes")
-        # impactfilelist=[evtfile.replace("ccd","tel") for evtfile in evtfilelist]
-        # merged_impactfile=f"{config.EVTDIR}nonpiledup_{self.basename}.fits"
-        # cmd2 = f"ftmerge {impactfilelist} {merged_impactfile} clobber=yes
+
+        if self.write_impactlist:
+            impfilestr = " ".join(self.impfilelist)
+            self.execute(f"ftmerge \"{impfilestr}\" {self.merged_impfile} clobber=yes")
 
     def ero_calevents(self):
         """
@@ -301,14 +330,6 @@ class Pileupsim:
         for evt in self.ero_caleventslist:
             self.execute(f"radec2xy {evt} {config.RA} {config.DEC}")
 
-    def _checkAreaScal(self, fp):
-        """
-        Check whether the AREASCAL keyword is the same in all spectra.
-        """
-        with fits.open(fp) as hdul:
-            if hdul[1].header['AREASCAL'] != self.areascal:
-                exit("ERROR: AREASCAL is {} in {}, not {}".format(hdul[0].header['AREASCAL'], fp, self.areascal))
-        
     def run_evtool(self, n=1, events="no", image="yes"):
         eventfiles = " ".join(self.ero_caleventslist)
         outfile = f"{config.ESASSDIR}{self.basename}_820_SkyImage_{n}.fits"
@@ -320,19 +341,12 @@ events={events} image={image} size={size} center_position=\"auto\" clobber=yes""
         if self.verbose > 1:
             print(f" *** (run_evtool): output image is {outfile}")
 
-    def getExposureFromARF(self):
+    def get_exposure_from_ARF(self):
         with fits.open(config.MASTER_ARF) as hdul:
             self.exposure = hdul['SPECRESP'].header['EXPOSURE']
         if self.verbose > 0:
-            print(f" *** (getExposureFromARF): The exposure from the ARF is {self.exposure} s")
-        
-    def addKeywords(self, fp):
-        self.execute(f"fthedit {fp} keyword=ANCRFILE operation=add value={os.path.basename(config.MASTER_ARF)}")
-        self.execute(f"fthedit {fp} keyword=RESPFILE operation=add value={os.path.basename(config.MASTER_RMF)}")
-        # EXPOSURE is not written unless ARF/ALL is specified in srctool.
-        # Not calculating the ARF speeds up the simulations significantly.
-        self.execute(f"fthedit {fp} keyword=EXPOSURE operation=add value={self.exposure}")
-            
+            print(f" *** (get_exposure_from_ARF): The exposure from the ARF is {self.exposure} s")
+
     def run_srctool(self, n=1, todo="ALL"):
         """
         Run eSASS srctool on the event files from ero_calevents to produce output products
@@ -370,13 +384,13 @@ clobber=yes"""
         srcfile = f"{config.ESASSDIR}{self.basename}_820_SourceSpec_00001{suffix}"
         backfile = srcfile.replace("SourceSpec", "BackgrSpec")
 
-        self._checkAreaScal(srcfile)
-        self._checkAreaScal(backfile)
+        self._check_area_scal(srcfile)
+        self._check_area_scal(backfile)
 
         if not "ALL" in todo and not "ARF" in todo:
-            self.getExposureFromARF()
-            self.addKeywords(srcfile)
-            self.addKeywords(backfile)
+            self.get_exposure_from_ARF()
+            self._add_keywords(srcfile)
+            self._add_keywords(backfile)
         
         if self.verbose > 1:
             print(f" *** (run_srctool): output spectrum of run {n+1}/{self.n_sim}: {srcfile}")
@@ -406,21 +420,31 @@ clobber=yes"""
             self.tstart = hdul['ATTITUDE'].header['TSTART']
             self.exposure = hdul['ATTITUDE'].header['TSTOP'] - self.tstart
 
-        self.merge_eventfiles()        
+        self.merge_eventfiles() 
         sixtesoft.makelc(evtfile=self.merged_evtfile,
                          lightcurve=self.merged_evtfile.replace(".fits", ".lc"),
                          tstart=self.tstart, length=self.exposure, dt=config.DT,
                          emin=0.21, emax=0.3, chanmin=-1, chanmax=-1,
                          gtifile=None, chatter=self.chatter, clobber="yes", history="true",
                          precmd="", logfile=self.logfile, test=False)
+
+    def run_makespec(self):
+        self.merge_eventfiles()
+        # need something like EventFilter="circle({},{},{},RA,DEC)".format(ra,dec,src_rad)
+        sixtesoft.makespec(evtfile=self.merged_evtfile, spectrum=self.finalSpectrumName,
+                           rsppath=config.XMLDIR, logfile=self.logfile)
+        self.add_spec_param_keywords(self.finalSpectrumName)
+        self._add_keywords(self.finalSpectrumName)
         
-    def addSpecParamKeywords(self, fp):
+    def add_spec_param_keywords(self, fp):
         for key, val in self.specparams.items():
             self.execute(f"fthedit {fp} keyword={key} operation=add value={val}")
+        
         self.execute(f"fthedit {fp} keyword=SRC_FLUX operation=add value={self.flux}")
         self.execute(f"fthedit {fp} keyword=EMIN operation=add value={config.EMIN}")
         self.execute(f"fthedit {fp} keyword=EMAX operation=add value={config.EMAX}")
         self.execute(f"fthedit {fp} keyword=N_SIM operation=add value={self.n_sim}")
+        self.execute(f"fthedit {fp} keyword=PARFILE operation=add value=\"\'{self.parfile}\'\" longstring=YES")
 
     def run_mathpha(self, infilelist, outfile):
         expr_file = f"{config.ESASSDIR}{self.shortname}_mathpha.txt"
@@ -448,9 +472,9 @@ clobber=yes"""
         # Bug in mathpha as in help: "At the current time, unfortuantely one CANNOT specify the name of (say)
         # the response matrix to be written as the value of the RESPFILE keyword via the parameter rmfile"
         # --> write ANCRFILE, RESPFILE manually to file
-        self.addKeywords(outfile)
+        self._add_keywords(outfile)
 
-    def averageSpectra(self):
+    def average_spectra(self):
         """
         .. note:: Why do we need a "shortname"? The mathpha expr
           parameter becomes very long if many spectra are averaged.
@@ -465,19 +489,20 @@ clobber=yes"""
         if not os.path.exists(config.SPECDIR):
             os.makedirs(config.SPECDIR)
         
-        # Change to folder where spectra are stored such that mathpha call doesn't require absolute pathes
+        # Change to folder where spectra are stored such that mathpha call
+        # doesn't require absolute paths
         os.chdir(config.ESASSDIR)
 
         if self.n_sim > 1:
             # Average source spectra
             src_outfile = f"s{self.shortname}_m.fits"
-            self.run_mathpha(infilelist=self._softlinkSpectraToShortname(f"s{self.shortname}", self.srcphalist),
+            self.run_mathpha(infilelist=self._softlink_spectra_to_shortname(f"s{self.shortname}", self.srcphalist),
                              outfile=src_outfile)
             [os.unlink(f"s{self.shortname}{n}") for n in range(self.n_sim)]
 
             # Average background spectra
             back_outfile = f"b{self.shortname}_m.fits"
-            self.run_mathpha(infilelist=self._softlinkSpectraToShortname(f"b{self.shortname}", self.backphalist),
+            self.run_mathpha(infilelist=self._softlink_spectra_to_shortname(f"b{self.shortname}", self.backphalist),
                              outfile=back_outfile)
             [os.unlink(f"b{self.shortname}{n}") for n in range(self.n_sim)]
 
@@ -485,8 +510,8 @@ clobber=yes"""
             src_outfile = self.srcphalist[0]
             back_outfile = self.backphalist[0]
 
-        self._checkAreaScal(src_outfile)
-        self._checkAreaScal(back_outfile)
+        self._check_area_scal(src_outfile)
+        self._check_area_scal(back_outfile)
             
         # Add background keywords
         self.execute(f"fthedit {src_outfile} keyword=BACKFILE operation=add longstring=YES value='{os.path.basename(self.finalBackSpecName)}'")
@@ -508,12 +533,12 @@ clobber=yes"""
         self.execute(f"fthedit {self.finalSpectrumName} keyword=\"POISSERR\" value=F operation=add")
         self.execute(f"fthedit {self.finalBackSpecName} keyword=\"POISSERR\" value=F operation=add")
 
-        self.addSpecParamKeywords(self.finalSpectrumName)
+        self.add_spec_param_keywords(self.finalSpectrumName)
 
         if self.verbose > 0:
-            print(f" *** (averageSpectra): Final spectrum is {self.finalSpectrumName}")
+            print(f" *** (average_spectra): Final spectrum is {self.finalSpectrumName}")
 
-    def averageImages(self):
+    def average_images(self):
         """
         Loads all simulated images and averages them.
         """
@@ -522,23 +547,24 @@ clobber=yes"""
             os.makedirs(config.IMGDIR)
 
         with fits.open(self.imglist[0]) as fp_out:
-            summedImg = fp_out[0].data
+            summed_img = fp_out[0].data
             for img in self.imglist[1:len(self.imglist)]:
                 with fits.open(img) as hdul:
-                    summedImg += hdul[0].data
-            fp_out[0].data = summedImg / self.n_sim
+                    summed_img += hdul[0].data
+            fp_out[0].data = summed_img / self.n_sim
             fp_out.writeto(self.finalImgName, overwrite=True)
         if self.verbose > 1:
-            print(f" *** (averageImages): {self.finalImgName}")
+            print(f" *** (average_images): {self.finalImgName}")
 
-    def averageLightcurves(self):
+    def average_lightcurves(self):
         if not os.path.exists(config.LCDIR):
             os.makedirs(config.LCDIR)
 
         n_lcs = len(self.lclist)
         
-        # Load the first lightcurve to preserve the FITS structure and then start adding from LC #2
-        with fits.open(self.lclist[0]) as fp_out:
+        # Load the first lightcurve to preserve the FITS structure and then
+        # start adding from LC #2
+        with (fits.open(self.lclist[0]) as fp_out):
             lc_0 = fp_out["RATE"].data
             exposure_0 = max(lc_0["TIME"]) - min(lc_0["TIME"])
 
@@ -549,16 +575,16 @@ clobber=yes"""
                     exposure_lc = max(lc_data["TIME"]) - min(lc_data["TIME"])
 
                     # Some testing whether the lightcurves fit to each other
-                    if any(np.equal(lc_0["BACKRATIO"], lc_data["BACKRATIO"])) == False:
-                        print(" *** WARNING (averageLightcurves): The BACKRATIO of the lightcurves to be averaged is not the same!")
+                    if not any(np.equal(lc_0["BACKRATIO"], lc_data["BACKRATIO"])):
+                        print(" *** WARNING (average_lightcurves): The BACKRATIO of the lightcurves to be averaged is not the same!")
                     if exposure_0 != exposure_lc:
-                        print(" *** WARNING (averageLightcurves): The exposures of the lightcurves to be averaged are not the same!")
-                    if any(np.equal(lc_0["TIMEDEL"], lc_data["TIMEDEL"])) == False:
-                        print(" *** WARNING (averageLightcurves): The TIMEDEL of the lightcurves to be averaged is not the same!")
+                        print(" *** WARNING (average_lightcurves): The exposures of the lightcurves to be averaged are not the same!")
+                    if not any(np.equal(lc_0["TIMEDEL"], lc_data["TIMEDEL"])):
+                        print(" *** WARNING (average_lightcurves): The TIMEDEL of the lightcurves to be averaged is not the same!")
 
                     for ii in range(self.n_ebands):
-                        if any(np.equal(lc_0["FRACEXP"][:,ii], lc_data["FRACEXP"][:,ii])) == False:
-                            print(" *** WARNING (averageLightcurves): The FRACEXP of the lightcurves to be averaged is not the same!")
+                        if not any(np.equal(lc_0["FRACEXP"][:,ii], lc_data["FRACEXP"][:,ii])):
+                            print(" *** WARNING (average_lightcurves): The FRACEXP of the lightcurves to be averaged is not the same!")
 
                         # Sum up to get total counts
                         lc_out["COUNTS"][:,ii] += lc_data["COUNTS"][:,ii]
@@ -566,44 +592,43 @@ clobber=yes"""
 
             # Calculate the averaged rate (see https://erosita.mpe.mpg.de/edr/DataAnalysis/srctool_doc.html -> Output files)
             for ii in range(self.n_ebands):
-                lc_out["RATE"][:,ii] = (lc_out["COUNTS"][:,ii] - lc_out["BACK_COUNTS"][:,ii]*lc_out["BACKRATIO"]) / (n_lcs * lc_out["FRACEXP"][:,ii] * lc_out["TIMEDEL"]);
+                lc_out["RATE"][:,ii] = (lc_out["COUNTS"][:,ii] - lc_out["BACK_COUNTS"][:,ii]*lc_out["BACKRATIO"]) \
+                                       / (n_lcs * lc_out["FRACEXP"][:,ii] * lc_out["TIMEDEL"])
                 # Error scales as sqrt(totcounts)/N = sqrt(counts)/sqrt(N)
-                lc_out["RATE_ERR"][:,ii] = np.sqrt(lc_out["COUNTS"][:,ii] + lc_out["BACK_COUNTS"][:,ii]*lc_out["BACKRATIO"]) / (n_lcs * lc_out["FRACEXP"][:,ii] * lc_out["TIMEDEL"]);
+                lc_out["RATE_ERR"][:,ii] = np.sqrt(lc_out["COUNTS"][:,ii] + lc_out["BACK_COUNTS"][:,ii]*lc_out["BACKRATIO"]) \
+                                           / (n_lcs * lc_out["FRACEXP"][:,ii] * lc_out["TIMEDEL"])
 
                 # Overwrite counts with mean counts
                 # lc_out["COUNTS_ERR"][:,ii] = np.sqrt(lc_out["COUNTS"][:,ii]) / n_lcs;
-                lc_out["COUNTS"][:,ii] = lc_out["COUNTS"][:,ii] / np.sqrt(n_lcs);
+                lc_out["COUNTS"][:,ii] = lc_out["COUNTS"][:,ii] / np.sqrt(n_lcs)
 
             fp_out.writeto(self.finalLCName, overwrite=True)
 
-        self.addSpecParamKeywords(self.finalLCName)
+        self.add_spec_param_keywords(self.finalLCName)
         [os.remove(fp) for fp in self.lclist]
         
         if self.verbose > 1:
-            print(f" *** (averageLightcurves): {self.finalLCName}")
-                
-            
+            print(f" *** (average_lightcurves): {self.finalLCName}")
+
     def clean_up(self):
         """
         Clean-up all temporary files written to the scratch disk (SCRATCHDIR).
         """
-        shutil.rmtree(self.pfiles_dir)
+        if self.n_sim > 1:
+            shutil.rmtree(self.pfiles_dir)
         os.remove(self.simputname)
+        os.remove(self.merged_evtfile)
         [os.remove(fp) for fp in self.evtfilelist]
-        [os.remove(fp) for fp in self.ero_caleventslist]
-        [os.remove(fp) for fp in self.srcphalist]
-        [os.remove(fp) for fp in self.backphalist]
+        #[os.remove(fp) for fp in self.ero_caleventslist]
+        #[os.remove(fp) for fp in self.srcphalist]
+        #[os.remove(fp) for fp in self.backphalist]
         # arflist = [fp.replace("SourceSpec", "ARF") for fp in self.srcphalist]
         # [os.remove(fp) for fp in arflist]
 
 
 def main():
-    # config.initialize_SIXTE()
-    # config.initialize_eSASS()
-
-    pileupsim = Pileupsim(flux=150, parfile="test.par", n_sim=2)
+    pileupsim = Pileupsim(flux = 150, parfile = "test.par", n_sim = 2)
     print(pileupsim)
-
 
 if __name__ == "__main__":
     main()

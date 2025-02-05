@@ -50,19 +50,18 @@ def arguments():
 def main():
     args = arguments()
     
-    pileupsim = Pileupsim(flux=args.flux, parfile=args.parfile, n_sim=args.n_sim,
-                          shortname=args.shortname,
-                          write_impactlist=True, verbose=args.verbose, clobber=args.clobber)
+    pileupsim = Pileupsim(flux = args.flux, parfile = args.parfile, background = "no",
+                          n_sim = args.n_sim, shortname = args.shortname,
+                          write_impactlist = False, verbose = args.verbose, clobber = args.clobber)
 
     pileupsim.create_simput()
-    # pileupsim.run_sixtesim()
-    pileupsim.run_erosim()
+    pileupsim.run_sixtesim()
     pileupsim.run_makespec()
+
     # pileupsim.ero_calevents()
     # # pileupsim.radec2xy()
     # pileupsim.run_srctool(todo="SPEC")  # use "SPEC" after createing srctool_master.arf/rmf
 
-    # pileupsim.averageSpectra()
     pileupsim.clean_up()
 
 
