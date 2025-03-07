@@ -49,7 +49,7 @@ def load_and_split_dataset():
     piledup = glob.glob(config.SPECDIR + "*cgs*.fits")
 
     # Perform filtering on source flux
-    piledup = [fname for fname in piledup if get_src_flux_from_filename(fname) <= 1e-10]
+    # piledup = [fname for fname in piledup if get_src_flux_from_filename(fname) <= 1e-10]
 
     nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
 
