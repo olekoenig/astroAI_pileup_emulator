@@ -15,14 +15,11 @@ def get_activation_hook(layer_name):
         activations[layer_name] = output.detach()  # Use detach() to avoid unnecessary computation graph retention
     return hook_fn
 
-def plot_activations():
+def plot_activations(model):
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
     index = 0
     input_data, target_data = test_dataset[index]
     input_fname, target_fname = test_dataset.get_filenames(index)
-
-    model = pileupNN()
-    model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
     hook_fc1 = model.fc1.register_forward_hook(get_activation_hook('fc1'))
     hook_fc2 = model.fc2.register_forward_hook(get_activation_hook('fc2'))
@@ -63,37 +60,34 @@ def plot_activations():
     axes[0].set_xscale('log')
     axes[-1].set_xscale('log')
 
-    #plt.show()
-    plt.savefig("activations.pdf")
+    outfile = "activations.pdf"
+    plt.savefig(outfile)
+    print(f"Wrote {outfile}")
 
     hook_fc1.remove()
     hook_fc2.remove()
     hook_fc3.remove()
     hook_fc4.remove()
 
-def plot_weights_and_biases():
-    model = pileupNN()
-    model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
-    weights_fc3 = model.fc3.weight.data.cpu().numpy()
-    bias_fc3 = model.fc3.bias.data.cpu().numpy()
+def plot_weights_and_biases(model):
+    weights_fc4 = model.fc4.weight.data.cpu().numpy()
+    bias_fc4 = model.fc4.bias.data.cpu().numpy()
 
     nx = 4
-    ny = int(256/4)
-    fig, axes = plt.subplots(ncols=nx, nrows=ny+1, sharex=True, figsize=(nx*4, ny*2.2))
-    fig.suptitle('Weights and biases of penultimate layer (fc3)')
+    ny = int(len(weights_fc4)/4)
+    fig, axes = plt.subplots(ncols=nx, nrows=ny+1, sharex=False, figsize=(nx*4, ny*2.2))
+    fig.suptitle('Weights and biases of last layer (fc4)')
     fig.supxlabel('Neuron Index')
     fig.supylabel('Value')
 
     neuron_idx = 0
     for x in range(nx):
         for y in range(ny):
-            #if neuron_idx >= nx*ny-1:
-            #    break
-            axes[y, x].plot(weights_fc3[neuron_idx], linestyle='-', label=f'Weights (Neuron {neuron_idx})')
+            axes[y, x].plot(weights_fc4[neuron_idx], linestyle='-', label=f'Weights (Neuron {neuron_idx})')
             axes[y, x].legend(loc='upper right')
             neuron_idx += 1
 
-    axes[ny, 0].plot(bias_fc3, color="black", label="Bias")
+    axes[ny, 0].plot(bias_fc4, color="black", label="Bias")
     axes[ny, 0].legend(loc='upper right')
     [axes[ny, ii].set_axis_off() for ii in range(1, nx)]
 
@@ -101,8 +95,10 @@ def plot_weights_and_biases():
     plt.savefig("weights_and_biases.pdf")
 
 def main():
-    plot_activations()
-    #plot_weights_and_biases()
+    model = pileupNN()
+    model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
+    plot_activations(model)
+    plot_weights_and_biases(model)
 
 
 if __name__ == '__main__':

@@ -57,13 +57,16 @@ def evaluate_on_testdata(model, test_dataset):
         axes[0].plot(target_data, label="Target (rescaled)", linewidth=1)
         axes[0].legend()
         axes[1] = plot_ratio(axes[1], target_data, predicted_output, data1_label="Target")
-        plt.tight_layout()
         outfile = f"outfiles/testdata_{index}.pdf"
         outfiles.append(outfile)
+        plt.tight_layout()
         plt.savefig(outfile)
 
     outstr = " ".join(outfiles)
-    os.system(f"pdfunite {outstr} testdata.pdf")
+    outfile = "testdata.pdf"
+    os.system(f"pdfunite {outstr} {outfile}")
+    print(f"Wrote {outfile}")
+    [os.system(f"rm {fp}") for fp in outfiles]
 
 def write_pha_file(channels, predicted_output, output_fname):
     de_piledup_spectrum = predicted_output.numpy()  # .astype(count_spectrum.dtype)
