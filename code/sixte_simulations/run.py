@@ -57,11 +57,6 @@ def main():
     pileupsim.create_simput()
     pileupsim.run_sixtesim()
     pileupsim.run_makespec()
-
-    # pileupsim.ero_calevents()
-    # # pileupsim.radec2xy()
-    # pileupsim.run_srctool(todo="SPEC")  # use "SPEC" after createing srctool_master.arf/rmf
-
     pileupsim.clean_up()
 
 
