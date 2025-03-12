@@ -8,12 +8,12 @@ class pileupNN(nn.Module):
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, output_size)
 
-        self.relu = nn.ReLU()
+        self.activation = nn.Softplus()
 
     def forward(self, x):
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.relu(self.fc3(x))
+        x = self.activation(self.fc1(x))
+        x = self.activation(self.fc2(x))
+        x = self.activation(self.fc3(x))
         x = self.fc4(x)  # Linear combination
-        x = self.relu(x)  # ReLU on final output to ensure non-negative counts
+        x = self.activation(x)  # ReLU on final output to ensure non-negative counts
         return x
