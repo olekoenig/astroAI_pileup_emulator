@@ -46,8 +46,9 @@ def plot_activations(model):
     axes[3].plot(penultimate_data.cpu().numpy(), color='magenta')
 
     axes[-1].plot([0, len(last_data.cpu().numpy())], [0, 0], linestyle='--', color='gray')
-    axes[-1].plot(last_data.cpu().numpy(), label='Activation before ReLU', color='blue', linewidth=2)
-    axes[-1].plot(predicted_output, label='Predicted output (after ReLU)', color='red', linewidth=1)
+    activation_name = type(model.activation).__name__
+    axes[-1].plot(last_data.cpu().numpy(), label=f'Activation before {activation_name}', color='blue', linewidth=2)
+    axes[-1].plot(predicted_output, label=f'Predicted output (after {activation_name})', color='red', linewidth=1)
     axes[-1].legend()
 
     axes[0].set_ylabel('Input data')
@@ -92,7 +93,9 @@ def plot_weights_and_biases(model):
     [axes[ny, ii].set_axis_off() for ii in range(1, nx)]
 
     plt.tight_layout()
-    plt.savefig("weights_and_biases.pdf")
+    outname = "weights_and_biases.pdf"
+    plt.savefig(outname)
+    print(f"Wrote {outname}")
 
 def main():
     model = pileupNN()
