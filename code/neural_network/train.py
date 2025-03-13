@@ -100,7 +100,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         avg_train_loss = validation_loop(model, train_loader, criterion)
         train_metadata.training_losses.append(avg_train_loss)
 
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.1f}, Validation Loss: {avg_val_loss:.1f}")
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
 
     weight_file = config.DATA_NEURAL_NETWORK + "model_weights.pth"
     torch.save(model.state_dict(), weight_file)
@@ -150,11 +150,11 @@ def main():
     # model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
     # criterion = MSELoss()
-    criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='sum')  # Exactly the same as Cash statistic?
+    criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0)
 
-    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=16)
+    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=64)
 
 
 if __name__ == "__main__":
