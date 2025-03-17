@@ -1,5 +1,3 @@
-# from pileupsim import Pileupsim
-from sim_ero_pileup import write_bbody_parfile
 from scipy.stats import qmc
 import numpy as np
 import os
@@ -7,11 +5,37 @@ import os
 # Run it in parallel with:
 # cat batch.sh | xargs -P 30 -I {} tcsh -c "{}"
 
-def generate_latin_hypercube(n_points, flux_min, flux_max, kt_min, kt_max):
-    sampler = qmc.LatinHypercube(d = 2)
+import config
+
+def write_bbody_parfile(nh, ktbb):
+    """
+    :param nh: Absorption column (10^22 cm^-2)
+    :param ktbb: Black body temperature (eV)
+    :returns: Path to parameter file
+
+    Write the spectrum file to be read in by simputfile. The flux is
+    scaled by the parameter Src_Flux in the creation of the SIMPUT so
+    the normalization of the black body is irrelevant.
+
+    .. ToDo: Is there a way to do this without raw writing, e.g. with pyspec?
+
+    """
+    parfile = "{}{:f}e22_{:f}eV.par".format(config.ISISPARFILEDIR, nh, ktbb)
+    with open(parfile, 'w') as fp:
+        fp.write("tbnew_simple(1)*bbody(1)\n")
+        fp.write(" idx  param           tie-to  freeze         value         min         max\n")
+        fp.write("  1  tbnew_simple(1).nH   0     0         {:f}           0         100  10^22/cm^2\n".format(nh))
+        fp.write("  2  bbody(1).norm        0     0                1           0       1e+10 \n")
+        fp.write("  3  bbody(1).kT          0     0         {:f}        0.01         100  keV\n".format(ktbb/1000))
+    return parfile
+
+def generate_latin_hypercube(n_points, flux_min, flux_max, kt_min,
+                             kt_max, nh_min, nh_max):
+    rng = np.random.default_rng(config.DATALOADER_RANDOM_SEED)
+    sampler = qmc.LatinHypercube(d = 3, rng=rng)
     sample = sampler.random(n = n_points)
-    l_bounds = [np.log(flux_min), kt_min]
-    u_bounds = [np.log(flux_max), kt_max]
+    l_bounds = [np.log(flux_min), kt_min, nh_min]
+    u_bounds = [np.log(flux_max), kt_max, nh_max]
     sample_scaled = qmc.scale(sample, l_bounds, u_bounds)
     sample_scaled[:,0] = np.exp(sample_scaled[:,0])
     return sample_scaled
@@ -29,8 +53,8 @@ def write_parfiles(samples):
         flux = sample[0]
         if flux not in used_fluxes:
             used_fluxes.append(flux)
-            nh = 1
             kt = sample[1]
+            nh = sample[2]
             parfile = write_bbody_parfile(nh, kt)
             parfiles.append(parfile)
         else:
@@ -42,16 +66,18 @@ def main():
     # energyband given by EMIN, EMAX in config.py
     flux_min, flux_max = 1e-12, 1e-8  # [cgs]
     kt_min, kt_max = 30, 200  # [eV]
-    nh = 1  # [10^22 cm^-2]
+    nh_min, nh_max = 0.2, 2  # [10^22 cm^-2]
 
-    n_points = 10000
-    samples = generate_latin_hypercube(n_points, flux_min, flux_max, kt_min, kt_max)
+    n_points = 20000
+    samples = generate_latin_hypercube(n_points, flux_min, flux_max,
+                                       kt_min, kt_max, nh_min, nh_max)
     parfiles = write_parfiles(samples)
 
     cmds = []
     for idx, (sample, parfile) in enumerate(zip(samples, parfiles), start=1):
         flux = sample[0]
         kt = sample[1]
+        nh = sample[2]
         print(f"{idx}/{n_points}, flux: {flux} cgs, N_H = {nh} e22 cm-2, kt = {kt} eV, parfiles = {os.path.basename(parfile)}")
 
         #pileupsim = Pileupsim(flux = flux, parfile = parfile, background = "no",
