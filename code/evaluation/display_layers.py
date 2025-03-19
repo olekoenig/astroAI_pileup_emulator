@@ -8,18 +8,72 @@ import config
 
 plt.rcParams['text.usetex'] = True
 
-activations = {}  # Dictionary to store activations
+ACTIVATIONS = {}
 
 def get_activation_hook(layer_name):
     def hook_fn(module, input, output):
-        activations[layer_name] = output.detach()  # Use detach() to avoid unnecessary computation graph retention
+        #print(f"{layer_name} hook: output shape {output.shape}, "
+        #      f"mean {output.mean().item():.4f}, min {output.min().item()}, max {output.max().item()}")
+        ACTIVATIONS[layer_name] = output.detach()  # Use detach() to avoid unnecessary computation graph retention
     return hook_fn
+
+def plot_last_layer(model):
+    train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+    input_data, target_data = test_dataset[0]
+
+    global ACTIVATIONS
+    ACTIVATIONS = {}  # clear
+
+    hook_fc3 = model.fc3.register_forward_hook(get_activation_hook('penultimate_layer'))
+    hook_fc4 = model.fc4.register_forward_hook(get_activation_hook('last_layer'))
+
+    model.eval()
+    with torch.no_grad():
+        predicted_output = model(input_data)
+
+    penultimate_data = ACTIVATIONS['penultimate_layer']
+    last_layer_data = ACTIVATIONS['last_layer']
+
+    fig, axes = plt.subplots(sharex=True, ncols=1, nrows=2, figsize=(15 / 2.54, 10 / 2.54))
+
+    # Apply activation to the last layer (hook returns the values *before* the activation function)
+    softplus = torch.nn.Softplus()
+    penultimate_activated = softplus(penultimate_data.cpu())
+
+    fc4_wo_bias = torch.matmul(penultimate_activated, model.fc4.weight.cpu().t())
+    bias_fc4 = model.fc4.bias.data.cpu()
+    manual_fc4 = fc4_wo_bias + bias_fc4
+    manual_fc4_activated = softplus(manual_fc4)
+
+    axes[0].plot(fc4_wo_bias.detach().numpy(), label=r'$x_\mathrm{fc3} * w^T$', color="cyan", linewidth=2)
+    axes[0].plot(manual_fc4.detach().numpy(), label=r'$x_\mathrm{fc3} * w^T + b$', color = "blue", linewidth=1)
+    axes[0].plot(manual_fc4_activated.detach().numpy(), label=r'$\sigma (x_\mathrm{fc3} * w^T + b)$', color="red", linewidth=1)
+
+    axes[0].plot(last_layer_data.detach().numpy(), label=r'$x_\mathrm{fc4}$', color='navy', linewidth=1)
+    axes[0].plot(predicted_output, label=r'Predicted output', color='maroon', linewidth=1)
+
+    axes[1].plot(bias_fc4, label=r'$b$', color='black', linewidth=1)
+    axes[-1].set_xlabel('Neuron Index')
+
+    axes[0].set_xscale('log')
+    axes[1].set_xscale('log')
+
+    axes[0].legend()
+    axes[1].legend()
+    plt.tight_layout()
+    plt.savefig("last_layer.pdf")
+
+    hook_fc3.remove()
+    hook_fc4.remove()
 
 def plot_activations(model):
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
     index = 0
     input_data, target_data = test_dataset[index]
     input_fname, target_fname = test_dataset.get_filenames(index)
+
+    global ACTIVATIONS
+    ACTIVATIONS = {}  # clear
 
     hook_fc1 = model.fc1.register_forward_hook(get_activation_hook('fc1'))
     hook_fc2 = model.fc2.register_forward_hook(get_activation_hook('fc2'))
@@ -32,10 +86,10 @@ def plot_activations(model):
         predicted_output = model(input_data)
 
     # Extract the activations of the layers (after the forward pass)
-    fc1_data = activations['fc1']
-    fc2_data = activations['fc2']
-    penultimate_data = activations['penultimate_layer']
-    last_data = activations['last_layer']
+    fc1_data = ACTIVATIONS['fc1']
+    fc2_data = ACTIVATIONS['fc2']
+    penultimate_data = ACTIVATIONS['penultimate_layer']
+    last_data = ACTIVATIONS['last_layer']
 
     fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(15/2.54, 20/2.54))
     fig.suptitle(os.path.basename(input_fname))
@@ -101,6 +155,7 @@ def main():
     model = pileupNN()
     model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
     plot_activations(model)
+    plot_last_layer(model)
     plot_weights_and_biases(model)
 
 
