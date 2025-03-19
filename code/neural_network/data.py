@@ -16,6 +16,19 @@ class PileupDataset(Dataset):
     def __len__(self):
         return len(self.input_files)
 
+    def alt__getitem__(self, idx):
+        input_data = fits.getdata(self.input_files[idx])
+        input_counts = np.array(input_data["COUNTS"], dtype=np.float32)
+        input_tensor = torch.tensor(input_counts)
+
+        #nh = fits.getval(self.input_files[idx], "NH")
+        kt = fits.getval(self.input_files[idx], "KT", ext=1)
+        src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / 1e-12
+
+        target_tensor = torch.tensor([kt, src_flux])
+
+        return input_tensor, target_tensor
+
     def __getitem__(self, idx):
         input_data = fits.getdata(self.input_files[idx])
         target_data = fits.getdata(self.target_files[idx])
@@ -72,3 +85,13 @@ def load_and_split_dataset():
     # train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
     return train_dataset, val_dataset, test_dataset
+
+def main():
+    piledup = glob.glob(config.SPECDIR + "*cgs*.fits")
+    nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
+    torch.manual_seed(config.DATALOADER_RANDOM_SEED)
+    dataset = PileupDataset(piledup, nonpiledup)
+    dataset.__getitem__(0)
+
+if __name__ == "__main__":
+    main()
