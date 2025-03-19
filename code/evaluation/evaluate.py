@@ -6,7 +6,8 @@ import os
 import random
 
 from data import load_and_split_dataset
-from neuralnetwork import pileupNN
+# from neuralnetwork import pileupNN
+from nn_parameter_prediction import pileupNN
 import config
 
 plt.rcParams['text.usetex'] = True
@@ -34,7 +35,7 @@ def plot_ratio(axis, data1, data2, data1_label = "Target", data2_label = "predic
     axis.set_ylim(0, 2)
     return axis
 
-def evaluate_on_testdata(model, test_dataset):
+def evaluate_on_test_spectrum(model, test_dataset):
     indices = [int(random.uniform(0, len(test_dataset)-1)) for _ in range(20)]
     outfiles = []
 
@@ -50,11 +51,14 @@ def evaluate_on_testdata(model, test_dataset):
         predicted_output *= max(input_data) / max(predicted_output)
         target_data *= max(input_data) / max(target_data)
 
+        ymax = max(predicted_output)
+
         fix, axes = setup_plot()
         axes[0].set_title(fr"\small {os.path.basename(input_fname)}")
         axes[0].plot(input_data, label="Input", linewidth=1)
         axes[0].plot(predicted_output, label="Predicted (rescaled)", linewidth=1)
         axes[0].plot(target_data, label="Target (rescaled)", linewidth=1)
+        axes[0].set_ylim(0.7, ymax + 0.1 * ymax)
         axes[0].legend()
         axes[1] = plot_ratio(axes[1], target_data, predicted_output, data1_label="Target")
         outfile = f"outfiles/testdata_{index}.pdf"
@@ -87,7 +91,7 @@ def write_pha_file(channels, predicted_output, output_fname):
     hdulist = fits.HDUList([primary_hdu, table_hdu])
     hdulist.writeto(output_fname, overwrite=True)
 
-def evaluate_on_realdata(model, real_pha_filename, out_pha_file = None):
+def evaluate_on_real_spectrum(model, real_pha_filename, out_pha_file = None):
     with fits.open(real_pha_filename) as hdulist:
         channels = hdulist[1].data["CHANNEL"]
         counts = hdulist[1].data["COUNTS"]
@@ -109,16 +113,49 @@ def evaluate_on_realdata(model, real_pha_filename, out_pha_file = None):
         if out_pha_file is not None:
             write_pha_file(channels, predicted_spectrum, out_pha_file)
 
+def evaluate_parameter_prediction(model, test_dataset):
+    kt_target = []
+    flux_target = []
+    kt_predicted = []
+    flux_predicted = []
+
+    for index in range(len(test_dataset)):
+        input_data, target_data = test_dataset[index]
+
+        model.eval()
+        with torch.no_grad():  # Disable gradient calculation for inference
+            predicted_output = model(input_data)
+
+        kt_predicted.append(predicted_output[0].item())
+        flux_predicted.append(predicted_output[1].item())
+        kt_target.append(target_data[0].item())
+        flux_target.append(target_data[1].item())
+
+    fig, axes = plt.subplots(ncols = 2, figsize=[10/2.54, 5/2.54])
+
+    axes[0].scatter(kt_target, kt_predicted, alpha=0.2, s=2)
+    axes[1].scatter(flux_target, flux_predicted, alpha=0.2, s=2)
+
+    axes[0].set_xlabel("True kT [keV]")
+    axes[0].set_ylabel("Predicted kT [keV]")
+
+    axes[1].set_xscale("log")
+    axes[1].set_yscale("log")
+    axes[1].set_xlabel("True flux [e-12 cgs]")
+    axes[1].set_ylabel("Predicted flux [e-12 cgs]")
+
+    plt.tight_layout()
+    plt.savefig("testdata.pdf")
+
 def main():
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
 
-    model = pileupNN(input_size=1024, hidden_size=256, output_size=1024)
+    model = pileupNN()
     model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
-    evaluate_on_testdata(model, test_dataset)
-    # evaluate_on_realdata(model, "/pool/burg1/novae4ole/V1710Sco_em04_PATall_820_SourceSpec_00001.fits",
-    #                      out_pha_file = "test.fits")
-
+    # evaluate_on_test_spectrum(model, test_dataset)
+    # evaluate_on_real_spectrum(model, "/pool/burg1/novae4ole/V1710Sco_em04_PATall_820_SourceSpec_00001.fits", out_pha_file = "test.fits")
+    evaluate_parameter_prediction(model, test_dataset)
 
 if __name__ == "__main__":
     main()
