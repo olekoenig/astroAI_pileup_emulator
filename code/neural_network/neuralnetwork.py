@@ -15,5 +15,5 @@ class pileupNN(nn.Module):
         x = self.activation(self.fc2(x))
         x = self.activation(self.fc3(x))
         x = self.fc4(x)  # Linear combination
-        x = self.activation(x)  # ReLU on final output to ensure non-negative counts
+        x = self.activation(x)  # activation on final output to ensure non-negative counts
         return x

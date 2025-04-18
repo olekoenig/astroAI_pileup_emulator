@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from neuralnetwork import pileupNN
+# from nn_parameter_prediction import pileupNN
 from data import load_and_split_dataset
 import config
 
@@ -26,6 +27,14 @@ class TrainMetadata:
     running_train_losses: list[float]
     mean_total_grad_norms: list[float]
 
+FC4_PRE_ACTIVATION = None
+
+def capture_fc4_pre_activation(module, input, output):
+    """Define a hook function to capture the output of fc4 before the activation is applied."""
+    global FC4_PRE_ACTIVATION
+    # Capture a clone of the output to avoid any in-place issues.
+    FC4_PRE_ACTIVATION = output.detach().clone()
+
 def _get_grad_norm(model: torch.nn.Module) -> float:
     grad_norms = []
     total_norm = 0
@@ -43,6 +52,9 @@ def training_loop(model, train_loader, criterion, optimizer):
     batch_losses = []
     total_grad_norms = []
 
+    hook_fc4 = model.fc4.register_forward_hook(capture_fc4_pre_activation)
+    lambda_reg = 1e-10  # regularization coefficient to penalize negative pre-activations.
+
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         # Move data to the correct device (GPU/CPU)
         inputs, targets = inputs.to(device), targets.to(device)
@@ -50,6 +62,13 @@ def training_loop(model, train_loader, criterion, optimizer):
         # Forward pass
         outputs = model(inputs)
         loss = criterion(outputs, targets)
+
+        # Add custom regularization on fc4's pre-activation outputs:
+        if FC4_PRE_ACTIVATION is not None:
+            # We want to penalize any negative values: clamp the negative part and square it.
+            reg_term = lambda_reg * torch.sum(torch.clamp(-1 * FC4_PRE_ACTIVATION, min=0) ** 2)
+            print(loss.item(), reg_term.item())
+            loss = loss + reg_term
 
         # Backward pass and optimization
         optimizer.zero_grad()  # Zero the gradients
@@ -64,6 +83,8 @@ def training_loop(model, train_loader, criterion, optimizer):
 
         batch_losses.append(loss.item())  # Store batch-wise loss
         running_train_loss += loss.item() * inputs.size(0)
+
+    hook_fc4.remove()
 
     running_train_loss = running_train_loss / len(train_loader.dataset)
     mean_total_grad_norm = np.mean(total_grad_norms)
@@ -87,7 +108,7 @@ def validation_loop(model, val_loader, criterion):
     avg_val_loss = running_val_loss / len(val_loader.dataset)  # Normalize by total samples
     return avg_val_loss
 
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10):
+def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=8):
     train_metadata = TrainMetadata(*[list() for dummy in fields(TrainMetadata)])
 
     for epoch in range(num_epochs):
@@ -141,15 +162,15 @@ def main():
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
     print(f"Number of training samples: {len(train_dataset)}")
 
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=16)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=16)
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=32)
+    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=32)
 
-    model = pileupNN(input_size=1024, hidden_size=256, output_size=1024)
+    model = pileupNN()
     model.to(device)
 
-    # model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
+    model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
-    # criterion = MSELoss()
+    # criterion = torch.nn.MSELoss()
     criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0)

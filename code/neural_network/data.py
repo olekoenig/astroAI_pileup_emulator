@@ -8,10 +8,10 @@ import numpy as np
 import config
 
 class PileupDataset(Dataset):
-    def __init__(self, input_files, target_files, transform=None):
+    def __init__(self, input_files, target_files, target_transform=None):
         self.input_files = input_files
         self.target_files = target_files
-        self.transform = transform
+        self.target_transform = target_transform
 
     def __len__(self):
         return len(self.input_files)
@@ -21,11 +21,11 @@ class PileupDataset(Dataset):
         input_counts = np.array(input_data["COUNTS"], dtype=np.float32)
         input_tensor = torch.tensor(input_counts)
 
-        #nh = fits.getval(self.input_files[idx], "NH")
         kt = fits.getval(self.input_files[idx], "KT", ext=1)
         src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / 1e-12
+        nh = fits.getval(self.input_files[idx], "NH", ext=1)
 
-        target_tensor = torch.tensor([kt, src_flux])
+        target_tensor = torch.tensor([kt, src_flux, nh])
 
         return input_tensor, target_tensor
 
@@ -39,8 +39,8 @@ class PileupDataset(Dataset):
         input_tensor = torch.tensor(input_counts)
         target_tensor = torch.tensor(target_counts)
 
-        if self.transform:
-            input_tensor = self.transform(input_tensor)
+        if self.target_transform:
+            input_tensor = self.target_transform(input_tensor)
 
         return input_tensor, target_tensor
 
@@ -68,13 +68,14 @@ def load_and_split_dataset():
 
     torch.manual_seed(config.DATALOADER_RANDOM_SEED)
 
-    dataset = PileupDataset(piledup, nonpiledup)
+    #target_transform = lambda t: torch.clamp(t, min=1e-4)
+    dataset = PileupDataset(piledup, nonpiledup, target_transform=None)
 
     if len(dataset[0][0]) != 1024:
         exit(f"Input dimension must be 1024 but is {dataset[0][0]}.")
 
     train_size = int(0.7 * len(dataset))
-    val_size = int(0.25 * len(dataset))
+    val_size = int(0.15 * len(dataset))
     test_size = len(dataset) - train_size - val_size  # Ensure all samples are used
 
     # Use class inheriting the PileupDataset in order to access the filenames
