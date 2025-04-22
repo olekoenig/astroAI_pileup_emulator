@@ -4,6 +4,7 @@ from astropy.io import fits
 import numpy as np
 import os
 import random
+from typing import Tuple
 
 from data import load_and_split_dataset
 # from neuralnetwork import pileupNN
@@ -11,7 +12,7 @@ from nn_parameter_prediction import pileupNN
 import config
 
 plt.rcParams['text.usetex'] = True
-
+plt.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
 
 def setup_plot():
     fig, axes = plt.subplots(2, 1, figsize=(10/2.54, 7/2.54), dpi=300,
@@ -31,7 +32,7 @@ def setup_plot():
 def plot_ratio(axis, data1, data2, data1_label = "Target", data2_label = "predicted"):
     ratio = torch.where(data2 != 0, data1 / data2, torch.nan)
     axis.plot(ratio, color='black')
-    axis.set_ylabel(fr'$\frac{{\mathrm{{{data1_label}}}}}{{\mathrm{{{data2_label}}}}}$')
+    axis.set_ylabel(fr'$\frac{{\text{{{data1_label}}}}}{{\text{{{data2_label}}}}}$')
     axis.set_ylim(0, 2)
     return axis
 
@@ -113,36 +114,77 @@ def evaluate_on_real_spectrum(model, real_pha_filename, out_pha_file = None):
         if out_pha_file is not None:
             write_pha_file(channels, predicted_spectrum, out_pha_file)
 
+def _get_params_from_output(output: torch.Tensor) -> Tuple[float, float, float, float, float, float]:
+    """Split parameter means (first numbers) and log variance (last half of numbers).
+    It does not quite correspond to the variance because I'm applying softplus
+    instead of exp on the logarithm of the variance for numerical stability."""
+    mu = output[:config.DIM_OUTPUT_PARAMETERS]
+    raw_log_var = output[config.DIM_OUTPUT_PARAMETERS:]
+    var = torch.nn.functional.softplus(raw_log_var) + 1e-6
+
+    log_kt, flux, nh = mu.tolist()
+    log_kt_err, flux_err, nh_err = torch.sqrt(var).tolist()
+
+    kt = np.exp(log_kt)  # [keV]
+    kt_err = np.exp(log_kt_err)  # [keV]
+
+    flux *= 1e-12  # [erg/cm^2/s]
+    flux_err *= 1e-12  # [erg/cm^2/s]
+
+    return kt, flux, nh, kt_err, flux_err, nh_err
+
 def evaluate_parameter_prediction(model, test_dataset):
-    kt_target = []
-    flux_target = []
-    kt_predicted = []
-    flux_predicted = []
+    model.eval()
 
-    for index in range(len(test_dataset)):
-        input_data, target_data = test_dataset[index]
+    kt_true, flux_true, nh_true = [], [], []
+    kt_pred, flux_pred, nh_pred = [], [], []
+    kt_errs, flux_errs, nh_errs = [], [], []
 
-        model.eval()
-        with torch.no_grad():  # Disable gradient calculation for inference
-            predicted_output = model(input_data)
+    with torch.no_grad():
+        for input, target in test_dataset:
+            output = model(input) # .squeeze(0)
 
-        kt_predicted.append(predicted_output[0].item())
-        flux_predicted.append(predicted_output[1].item())
-        kt_target.append(target_data[0].item())
-        flux_target.append(target_data[1].item())
+            kt, flux, nh, kt_e, flux_e, nh_e = _get_params_from_output(output)
+            kt_pred.append(kt); kt_errs.append(kt_e)
+            flux_pred.append(flux); flux_errs.append(flux_e)
+            nh_pred.append(nh); nh_errs.append(nh_e)
 
-    fig, axes = plt.subplots(ncols = 2, figsize=[10/2.54, 5/2.54])
+            kt_true.append(target[0].item())
+            flux_true.append(target[1].item() * 1e-12)
+            nh_true.append(target[2].item())
 
-    axes[0].scatter(kt_target, kt_predicted, alpha=0.2, s=2)
-    axes[1].scatter(flux_target, flux_predicted, alpha=0.2, s=2)
+    fig, axes = plt.subplots(ncols = 3, figsize=[18/2.54, 6/2.54])
+    axes[0].set_xlim(min(kt_true), max(kt_true))
+    axes[0].set_ylim(min(kt_true)/10, max(kt_true)*10)
+    axes[1].set_xlim(min(flux_true), max(flux_true))
+    axes[1].set_ylim(min(flux_true), max(flux_true))
+    #axes[2].set_xlim(min(nh_true), max(nh_true))
+    #axes[2].set_ylim(min(nh_pred), max(nh_pred))
 
-    axes[0].set_xlabel("True kT [keV]")
-    axes[0].set_ylabel("Predicted kT [keV]")
+    axes[0].errorbar(kt_true, kt_pred, yerr=kt_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
+    axes[1].errorbar(flux_true, flux_pred, yerr=flux_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
+    axes[2].errorbar(nh_true, nh_pred, yerr=nh_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
+
+    #axes[0].scatter(kt_true, kt_pred[:,0], alpha=0.09, s=2)
+    #axes[1].scatter(flux_true, flux_pred[:, 0], alpha=0.09, s=2)
+    #axes[2].scatter(nh_true, nh_pred[:, 0], alpha=0.09, s=2)
+
+    axes[0].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)
+    axes[1].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)
+    axes[2].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)
+
+    axes[0].set_xlabel(r"True $kT$ [keV]")
+    axes[0].set_ylabel(r"Predicted $kT$ [keV]")
 
     axes[1].set_xscale("log")
     axes[1].set_yscale("log")
-    axes[1].set_xlabel("True flux [e-12 cgs]")
-    axes[1].set_ylabel("Predicted flux [e-12 cgs]")
+    axes[1].set_xlabel(r"True flux [$\mathrm{erg}\,\mathrm{cm}^{-2}\,\mathrm{s}^{-1}$]")
+    axes[1].set_ylabel(r"Predicted flux [$\mathrm{erg}\,\mathrm{cm}^{-2}\,\mathrm{s}^{-1}$")
+
+    axes[2].set_xscale("log")
+    axes[2].set_yscale("log")
+    axes[2].set_xlabel(r"True $N_\mathrm{H}$ [$10^{22}\,\mathrm{cm}^{-2}$]")
+    axes[2].set_ylabel(r"Predicted $N_\text{H}$ [$10^{22}\,\mathrm{cm}^{-2}$]")
 
     plt.tight_layout()
     plt.savefig("testdata.pdf")
