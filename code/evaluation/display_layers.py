@@ -12,12 +12,11 @@ ACTIVATIONS = {}
 
 def get_activation_hook(layer_name):
     def hook_fn(module, input, output):
-        #print(f"{layer_name} hook: output shape {output.shape}, "
-        #      f"mean {output.mean().item():.4f}, min {output.min().item()}, max {output.max().item()}")
         ACTIVATIONS[layer_name] = output.detach()  # Use detach() to avoid unnecessary computation graph retention
     return hook_fn
 
 def plot_last_layer(model):
+    """Function used to manually check the matrix multiplication of weights and feature vector in the last layer."""
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
     input_data, target_data = test_dataset[0]
 
@@ -68,7 +67,7 @@ def plot_last_layer(model):
 
 def plot_activations(model):
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
-    index = 0
+    index = 20
     input_data, target_data = test_dataset[index]
     input_fname, target_fname = test_dataset.get_filenames(index)
 
@@ -113,6 +112,7 @@ def plot_activations(model):
     axes[-1].set_xlabel('Neuron Index')
 
     axes[0].set_xscale('log')
+    axes[0].set_yscale('log')
     axes[-1].set_xscale('log')
 
     outfile = "activations.pdf"
@@ -125,11 +125,12 @@ def plot_activations(model):
     hook_fc4.remove()
 
 def plot_weights_and_biases(model):
-    weights_fc4 = model.fc4.weight.data.cpu().numpy()
+    weights_fc4 = model.fc4.weight.data.cpu()
+    weights_fc4_transpose = weights_fc4.t().numpy()
     bias_fc4 = model.fc4.bias.data.cpu().numpy()
 
     nx = 4
-    ny = int(len(weights_fc4)/4)
+    ny = int(len(weights_fc4_transpose)/4)
     fig, axes = plt.subplots(ncols=nx, nrows=ny+1, sharex=False, figsize=(nx*4, ny*2.2))
     fig.suptitle('Weights and biases of last layer (fc4)')
     fig.supxlabel('Neuron Index')
@@ -138,12 +139,14 @@ def plot_weights_and_biases(model):
     neuron_idx = 0
     for x in range(nx):
         for y in range(ny):
-            axes[y, x].plot(weights_fc4[neuron_idx], linestyle='-', label=f'Weights (Neuron {neuron_idx})')
+            axes[y, x].plot(weights_fc4_transpose[neuron_idx], linestyle='-', label=f'Weights (Neuron {neuron_idx})')
             axes[y, x].legend(loc='upper right')
+            axes[y, x].set_xscale('log')
             neuron_idx += 1
 
     axes[ny, 0].plot(bias_fc4, color="black", label="Bias")
     axes[ny, 0].legend(loc='upper right')
+    axes[ny, 0].set_xscale('log')
     [axes[ny, ii].set_axis_off() for ii in range(1, nx)]
 
     plt.tight_layout()
@@ -154,9 +157,10 @@ def plot_weights_and_biases(model):
 def main():
     model = pileupNN()
     model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
+
     plot_activations(model)
-    plot_last_layer(model)
-    plot_weights_and_biases(model)
+    # plot_last_layer(model)
+    # plot_weights_and_biases(model)
 
 
 if __name__ == '__main__':
