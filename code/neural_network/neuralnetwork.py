@@ -1,7 +1,9 @@
 import torch.nn as nn
+import config
 
 class pileupNN(nn.Module):
-    def __init__(self, input_size=1024, hidden_size=256, output_size=1024):
+    def __init__(self, input_size=1024, hidden_size=256, output_size=config.DIM_OUTPUT_PARAMETERS * 2):
+        """Output dimensions: First half are the model parameters, the last half are the log variance."""
         super(pileupNN, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -15,5 +17,4 @@ class pileupNN(nn.Module):
         x = self.activation(self.fc2(x))
         x = self.activation(self.fc3(x))
         x = self.fc4(x)  # Linear combination
-        x = self.activation(x)  # activation on final output to ensure non-negative counts
         return x

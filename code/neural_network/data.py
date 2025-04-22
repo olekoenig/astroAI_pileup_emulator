@@ -16,7 +16,7 @@ class PileupDataset(Dataset):
     def __len__(self):
         return len(self.input_files)
 
-    def alt__getitem__(self, idx):
+    def __getitem__(self, idx):
         input_data = fits.getdata(self.input_files[idx])
         input_counts = np.array(input_data["COUNTS"], dtype=np.float32)
         input_tensor = torch.tensor(input_counts)
@@ -29,7 +29,7 @@ class PileupDataset(Dataset):
 
         return input_tensor, target_tensor
 
-    def __getitem__(self, idx):
+    def alt__getitem__(self, idx):
         input_data = fits.getdata(self.input_files[idx])
         target_data = fits.getdata(self.target_files[idx])
 

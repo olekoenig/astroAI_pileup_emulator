@@ -54,6 +54,7 @@ DATA_NEURAL_NETWORK = "/pool/burg1/astroai/pileup/data_neural_network/"
 
 # Hyperparameters of neural network and related parameters
 DATALOADER_RANDOM_SEED = 42
+DIM_OUTPUT_PARAMETERS = 3
 
 # If we always simulate the same slew, we don't need to always compute the
 # GTI file (ero_vis) and write RMF/ARF (srctool) but can calculate it
