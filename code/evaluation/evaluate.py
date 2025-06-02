@@ -7,8 +7,7 @@ import random
 from typing import Tuple
 
 from data import load_and_split_dataset
-# from neuralnetwork import pileupNN
-from nn_parameter_prediction import pileupNN
+from neuralnetwork import ConvSpectraNet
 import config
 
 plt.rcParams['text.usetex'] = True
@@ -138,36 +137,43 @@ def evaluate_parameter_prediction(model, test_dataset):
 
     kt_true, flux_true, nh_true = [], [], []
     kt_pred, flux_pred, nh_pred = [], [], []
-    kt_errs, flux_errs, nh_errs = [], [], []
+    # kt_errs, flux_errs, nh_errs = [], [], []
 
     with torch.no_grad():
         for input, target in test_dataset:
-            output = model(input) # .squeeze(0)
+            # output = model(input) # .squeeze(0)
+            output = model(input.unsqueeze(0))[0]  # from [1024] to [1,1024] (for convolutional layer)
 
-            kt, flux, nh, kt_e, flux_e, nh_e = _get_params_from_output(output)
-            kt_pred.append(kt); kt_errs.append(kt_e)
-            flux_pred.append(flux); flux_errs.append(flux_e)
-            nh_pred.append(nh); nh_errs.append(nh_e)
+            # kt, flux, nh, kt_e, flux_e, nh_e = _get_params_from_output(output)
+            kt, flux, nh = output.tolist()
+
+            kt_pred.append(kt)
+            flux_pred.append(flux * 1e-12)
+            nh_pred.append(nh)
+
+            # kt_errs.append(kt_e)
+            # flux_errs.append(flux_e)
+            # nh_errs.append(nh_e)
 
             kt_true.append(target[0].item())
             flux_true.append(target[1].item() * 1e-12)
             nh_true.append(target[2].item())
 
     fig, axes = plt.subplots(ncols = 3, figsize=[18/2.54, 6/2.54])
-    axes[0].set_xlim(min(kt_true), max(kt_true))
-    axes[0].set_ylim(min(kt_true)/10, max(kt_true)*10)
+    #axes[0].set_xlim(min(kt_true), max(kt_true))
+    #axes[0].set_ylim(min(kt_true)/10, max(kt_true)*10)
     axes[1].set_xlim(min(flux_true), max(flux_true))
     axes[1].set_ylim(min(flux_true), max(flux_true))
     #axes[2].set_xlim(min(nh_true), max(nh_true))
     #axes[2].set_ylim(min(nh_pred), max(nh_pred))
 
-    axes[0].errorbar(kt_true, kt_pred, yerr=kt_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
-    axes[1].errorbar(flux_true, flux_pred, yerr=flux_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
-    axes[2].errorbar(nh_true, nh_pred, yerr=nh_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
+    # axes[0].errorbar(kt_true, kt_pred, yerr=kt_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
+    # axes[1].errorbar(flux_true, flux_pred, yerr=flux_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
+    # axes[2].errorbar(nh_true, nh_pred, yerr=nh_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
 
-    #axes[0].scatter(kt_true, kt_pred[:,0], alpha=0.09, s=2)
-    #axes[1].scatter(flux_true, flux_pred[:, 0], alpha=0.09, s=2)
-    #axes[2].scatter(nh_true, nh_pred[:, 0], alpha=0.09, s=2)
+    axes[0].scatter(kt_true, kt_pred, alpha=0.09, s=2)
+    axes[1].scatter(flux_true, flux_pred, alpha=0.09, s=2)
+    axes[2].scatter(nh_true, nh_pred, alpha=0.09, s=2)
 
     axes[0].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)
     axes[1].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)
@@ -192,7 +198,7 @@ def evaluate_parameter_prediction(model, test_dataset):
 def main():
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
 
-    model = pileupNN()
+    model = ConvSpectraNet()
     model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
     # evaluate_on_test_spectrum(model, test_dataset)
