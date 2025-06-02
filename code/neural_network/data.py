@@ -24,9 +24,9 @@ class PileupDataset(Dataset):
 
         kt = fits.getval(self.input_files[idx], "KT", ext=1)
         src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / 1e-12
-        # nh = fits.getval(self.input_files[idx], "NH", ext=1)
+        nh = fits.getval(self.input_files[idx], "NH", ext=1)
 
-        target_tensor = torch.tensor([kt, src_flux])
+        target_tensor = torch.tensor([kt, src_flux, nh])
 
         return input_tensor, target_tensor
 

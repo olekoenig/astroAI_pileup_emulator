@@ -147,9 +147,9 @@ def evaluate_parameter_prediction(model, test_dataset):
             # kt, flux, nh, kt_e, flux_e, nh_e = _get_params_from_output(output)
             kt, flux, nh = output.tolist()
 
-            kt_pred.append(kt)
-            flux_pred.append(flux * 1e-12)
-            nh_pred.append(nh)
+            kt_pred.append(np.exp(kt))
+            flux_pred.append(np.exp(flux) * 1e-12)
+            nh_pred.append(np.exp(nh))
 
             # kt_errs.append(kt_e)
             # flux_errs.append(flux_e)
@@ -162,8 +162,8 @@ def evaluate_parameter_prediction(model, test_dataset):
     fig, axes = plt.subplots(ncols = 3, figsize=[18/2.54, 6/2.54])
     #axes[0].set_xlim(min(kt_true), max(kt_true))
     #axes[0].set_ylim(min(kt_true)/10, max(kt_true)*10)
-    axes[1].set_xlim(min(flux_true), max(flux_true))
-    axes[1].set_ylim(min(flux_true), max(flux_true))
+    # axes[1].set_xlim(min(flux_true), max(flux_true))
+    # axes[1].set_ylim(min(flux_true), max(flux_true))
     #axes[2].set_xlim(min(nh_true), max(nh_true))
     #axes[2].set_ylim(min(nh_pred), max(nh_pred))
 
@@ -171,9 +171,9 @@ def evaluate_parameter_prediction(model, test_dataset):
     # axes[1].errorbar(flux_true, flux_pred, yerr=flux_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
     # axes[2].errorbar(nh_true, nh_pred, yerr=nh_errs, alpha=0.1, ms=2, ecolor="silver", elinewidth=0.1, fmt=".")
 
-    axes[0].scatter(kt_true, kt_pred, alpha=0.09, s=2)
-    axes[1].scatter(flux_true, flux_pred, alpha=0.09, s=2)
-    axes[2].scatter(nh_true, nh_pred, alpha=0.09, s=2)
+    axes[0].scatter(kt_true, kt_pred, alpha=0.1, s=2)
+    axes[1].scatter(flux_true, flux_pred, alpha=0.1, s=2)
+    axes[2].scatter(nh_true, nh_pred, alpha=0.1, s=2)
 
     axes[0].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)
     axes[1].axline((0, 0), slope=1, color="gray", linestyle="--", linewidth=1)

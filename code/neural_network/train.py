@@ -70,12 +70,12 @@ def training_loop(model, train_loader, criterion, optimizer):
         outputs = model(inputs)
 
         # Prediction of log‑values to avoid negative values + capture large value range
-        #log_targets = torch.stack([
-        #    torch.log(targets[:,0]),
-        #    torch.log(targets[:,1]),
-        #    torch.log(targets[:,2])], dim=1)
+        log_targets = torch.stack([
+            torch.log(targets[:,0]),
+            torch.log(targets[:,1]),
+            torch.log(targets[:,2])], dim=1)
 
-        loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
+        loss = criterion(outputs, log_targets)  # use for MSELoss / PoissonNLLLoss
 
         # mu, var = _get_mu_var_from_model(outputs)
         # loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
@@ -190,7 +190,7 @@ def main():
     model = ConvSpectraNet()
     model.to(device)
 
-    # model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
+    model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
     criterion = torch.nn.MSELoss()  # use for parameter estimator
     # criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')  # use for spectral estimator
@@ -198,7 +198,7 @@ def main():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0)
 
-    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=64)
+    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=16)
 
 
 if __name__ == "__main__":
