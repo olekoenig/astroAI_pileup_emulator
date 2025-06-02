@@ -6,8 +6,7 @@ from dataclasses import dataclass,fields
 import torch
 from torch.utils.data import DataLoader
 
-# from neuralnetwork import pileupNN
-from nn_parameter_prediction import pileupNN
+from neuralnetwork import ConvSpectraNet
 from data import load_and_split_dataset
 import config
 
@@ -70,17 +69,16 @@ def training_loop(model, train_loader, criterion, optimizer):
         # Forward pass
         outputs = model(inputs)
 
-        #loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
+        # Prediction of log‑values to avoid negative values + capture large value range
+        #log_targets = torch.stack([
+        #    torch.log(targets[:,0]),
+        #    torch.log(targets[:,1]),
+        #    torch.log(targets[:,2])], dim=1)
 
-        mu, var = _get_mu_var_from_model(outputs)
+        loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
 
-        # Prediction of log‑temperature because otherwise tends to negative temperatures
-        y_true = torch.stack([
-            torch.log(targets[:,0]),
-            targets[:,1],
-            targets[:,2]], dim=1)
-
-        loss = criterion(mu, y_true, var)  # use for GaussianNLLLoss
+        # mu, var = _get_mu_var_from_model(outputs)
+        # loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
 
         # Add custom regularization on last layer's pre-activation outputs
         # (to penalize negative values at high energies):
@@ -122,10 +120,10 @@ def validation_loop(model, val_loader, criterion):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
 
-            # loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
+            loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
 
-            mu, var = _get_mu_var_from_model(outputs)
-            loss = criterion(mu, targets, var)  # use for GaussianNLLLoss
+            # mu, var = _get_mu_var_from_model(outputs)
+            # loss = criterion(mu, targets, var)  # use for GaussianNLLLoss
 
             running_val_loss += loss.item() * inputs.size(0)  # Scale by batch size
 
@@ -189,18 +187,18 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=32)
     val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=32)
 
-    model = pileupNN()
+    model = ConvSpectraNet()
     model.to(device)
 
     # model.load_state_dict(torch.load(config.DATA_NEURAL_NETWORK + "model_weights.pth", map_location="cpu"))
 
-    # criterion = torch.nn.MSELoss()
-    # criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')
-    criterion = torch.nn.GaussianNLLLoss(eps=1e-6)
+    criterion = torch.nn.MSELoss()  # use for parameter estimator
+    # criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')  # use for spectral estimator
+    # criterion = torch.nn.GaussianNLLLoss(eps=1e-6)  # use for parameter + variance estimator
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0)
 
-    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=32)
+    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=64)
 
 
 if __name__ == "__main__":

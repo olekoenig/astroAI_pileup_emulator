@@ -18,14 +18,15 @@ class PileupDataset(Dataset):
 
     def __getitem__(self, idx):
         input_data = fits.getdata(self.input_files[idx])
+        # input_channels = torch.tensor(np.array(input_data["CHANNEL"], dtype=np.int32)); torch.stack([input_channels, input_counts], dim=0)
         input_counts = np.array(input_data["COUNTS"], dtype=np.float32)
         input_tensor = torch.tensor(input_counts)
 
         kt = fits.getval(self.input_files[idx], "KT", ext=1)
         src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / 1e-12
-        nh = fits.getval(self.input_files[idx], "NH", ext=1)
+        # nh = fits.getval(self.input_files[idx], "NH", ext=1)
 
-        target_tensor = torch.tensor([kt, src_flux, nh])
+        target_tensor = torch.tensor([kt, src_flux])
 
         return input_tensor, target_tensor
 
@@ -71,7 +72,7 @@ def load_and_split_dataset():
     #target_transform = lambda t: torch.clamp(t, min=1e-4)
     dataset = PileupDataset(piledup, nonpiledup, target_transform=None)
 
-    if len(dataset[0][0]) != 1024:
+    if len(dataset[0][0]) != config.DIM_INPUT_PARAMETERS:
         exit(f"Input dimension must be 1024 but is {dataset[0][0]}.")
 
     train_size = int(0.7 * len(dataset))
@@ -88,11 +89,13 @@ def load_and_split_dataset():
     return train_dataset, val_dataset, test_dataset
 
 def main():
+    train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+
     piledup = glob.glob(config.SPECDIR + "*cgs*.fits")
     nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
     torch.manual_seed(config.DATALOADER_RANDOM_SEED)
     dataset = PileupDataset(piledup, nonpiledup)
-    dataset.__getitem__(0)
+    print(dataset.__getitem__(0))
 
 if __name__ == "__main__":
     main()
