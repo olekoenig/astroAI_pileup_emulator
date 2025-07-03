@@ -5,13 +5,16 @@ from astropy.io import fits
 from torch.utils.data import Dataset, Subset, random_split
 import numpy as np
 
-import config
+from config import SIXTEConfig,MLConfig
+
+sixte_config = SIXTEConfig()
+ml_config = MLConfig()
 
 class PileupDataset(Dataset):
     def __init__(self, input_files, target_files, target_transform=None):
         self.input_files = input_files
         self.target_files = target_files
-        self.target_transform = target_transform
+        # self.target_transform = target_transform
 
     def __len__(self):
         return len(self.input_files)
@@ -40,8 +43,8 @@ class PileupDataset(Dataset):
         input_tensor = torch.tensor(input_counts)
         target_tensor = torch.tensor(target_counts)
 
-        if self.target_transform:
-            input_tensor = self.target_transform(input_tensor)
+        # if self.target_transform:
+        #     input_tensor = self.target_transform(input_tensor)
 
         return input_tensor, target_tensor
 
@@ -60,19 +63,19 @@ def get_src_flux_from_filename(fname):
     return float(src_flux.split("Em10")[0]) * 1e-10
 
 def load_and_split_dataset():
-    piledup = glob.glob(config.SPECDIR + "*cgs*.fits")
+    piledup = glob.glob(sixte_config.SPECDIR + "*cgs*.fits")
 
     # Perform filtering on source flux
     # piledup = [fname for fname in piledup if get_src_flux_from_filename(fname) <= 1e-10]
 
     nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
 
-    torch.manual_seed(config.DATALOADER_RANDOM_SEED)
+    torch.manual_seed(ml_config.dataloader_random_seed)
 
     #target_transform = lambda t: torch.clamp(t, min=1e-4)
     dataset = PileupDataset(piledup, nonpiledup, target_transform=None)
 
-    if len(dataset[0][0]) != config.DIM_INPUT_PARAMETERS:
+    if len(dataset[0][0]) != ml_config.dim_input_parameters:
         exit(f"Input dimension must be 1024 but is {dataset[0][0]}.")
 
     train_size = int(0.7 * len(dataset))
@@ -89,13 +92,28 @@ def load_and_split_dataset():
     return train_dataset, val_dataset, test_dataset
 
 def main():
-    train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+    # Do a few tests for trouble-shooting when running this file individually
+    def test1():
+        from torch.utils.data import DataLoader
+        train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+        full_train_loader = DataLoader(train_dataset, batch_size=len(train_dataset), shuffle=False)  # treat as one big batch to get min/max
+        _, targets = next(iter(full_train_loader))
+        kt_vals = targets[:, 0]
+        src_flux_vals = targets[:, 1]
+        nh_vals = targets[:, 2]
 
-    piledup = glob.glob(config.SPECDIR + "*cgs*.fits")
-    nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
-    torch.manual_seed(config.DATALOADER_RANDOM_SEED)
-    dataset = PileupDataset(piledup, nonpiledup)
-    print(dataset.__getitem__(0))
+        print(f"kT min: {kt_vals.min().item()}, max: {kt_vals.max().item()}")
+        print(f"src_flux min: {src_flux_vals.min().item()}, max: {src_flux_vals.max().item()} e-12 cgs")
+        print(f"nh min: {nh_vals.min().item()}, max: {nh_vals.max().item()}")
+
+    def test2():
+        piledup = glob.glob(sixte_config.SPECDIR + "*cgs*.fits")
+        nonpiledup = [pha.replace("piledup", "nonpiledup") for pha in piledup]
+        torch.manual_seed(ml_config.dataloader_random_seed)
+        dataset = PileupDataset(piledup, nonpiledup)
+        print(dataset.__getitem__(0))
+
+    test1()
 
 if __name__ == "__main__":
     main()
