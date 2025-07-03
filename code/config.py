@@ -8,7 +8,8 @@ class MLConfig:
     # Hyperparameters of neural network and related parameters
     dataloader_random_seed: int = 42
     dim_input_parameters: int = 1024  # channels in spectrum
-    dim_output_parameters: int = 1024
+    dim_output_parameters: int = 3
+    epsilon: float = 1e-6  # for clamped values
 
 @dataclass(frozen=True)
 class SIXTEConfig():
