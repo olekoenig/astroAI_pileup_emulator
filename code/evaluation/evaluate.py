@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import torch
 from astropy.io import fits
 import numpy as np
+import pandas as pd
 import os
 import random
 from typing import Tuple
@@ -9,6 +10,7 @@ from typing import Tuple
 from data import load_and_split_dataset
 from neuralnetwork import ConvSpectraNet
 from config import MLConfig, SIXTEConfig
+from subs import plot_loss
 
 ml_config = MLConfig()
 sixte_config = SIXTEConfig()
@@ -226,15 +228,22 @@ def evaluate_parameter_prediction(model, test_dataset):
     plt.savefig("testdata.pdf")
 
 def main():
-    train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+    def plot_testdata():
+        train_dataset, val_dataset, test_dataset = load_and_split_dataset()
 
-    model = ConvSpectraNet()
-    model.load_state_dict(torch.load(ml_config.data_neural_network + "model_weights.pth", map_location="cpu"))
+        model = ConvSpectraNet()
+        model.load_state_dict(torch.load(ml_config.data_neural_network + "model_weights.pth", map_location="cpu"))
 
-    # evaluate_on_test_spectrum(model, test_dataset)
-    # evaluate_on_real_spectrum(model, "/pool/burg1/novae4ole/V1710Sco_em04_PATall_820_SourceSpec_00001.fits", out_pha_file = "test.fits")
-    # evaluate_on_real_spectrum(model, "/pool/burg1/tmp/YZRet_Nova_Fireball_020_SourceSpec_00001.fits")
-    evaluate_parameter_prediction(model, test_dataset)
+        # evaluate_on_test_spectrum(model, test_dataset)
+        # evaluate_on_real_spectrum(model, "/pool/burg1/novae4ole/V1710Sco_em04_PATall_820_SourceSpec_00001.fits", out_pha_file = "test.fits")
+        # evaluate_on_real_spectrum(model, "/pool/burg1/tmp/YZRet_Nova_Fireball_020_SourceSpec_00001.fits")
+        evaluate_parameter_prediction(model, test_dataset)
+
+    def plot_loss_from_csv():
+        metadata = pd.read_csv("../neural_network/loss.csv")
+        plot_loss(metadata)
+
+    plot_loss_from_csv()
 
 if __name__ == "__main__":
     main()

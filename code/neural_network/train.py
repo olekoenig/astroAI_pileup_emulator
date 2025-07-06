@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import csv
 import numpy as np
 from dataclasses import dataclass,fields
@@ -10,6 +9,7 @@ from neuralnetwork import ConvSpectraNet
 # from neuralnetwork import pileupNN_variance_estimator
 from data import load_and_split_dataset
 from config import MLConfig
+from subs import plot_loss
 
 device = 'cpu'  # torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ml_config = MLConfig()
@@ -52,9 +52,22 @@ def _get_mu_var_from_model(outputs):
     It does not quite correspond to the variance because I'm applying softplus
     instead of exp on the logarithm of the variance for numerical stability."""
     mu, raw_log_var = outputs[:, :ml_config.dim_output_parameters], outputs[:, ml_config.dim_output_parameters:]
-    raw_log_var = raw_log_var.clamp(-6, 6)  # Clamp such that variance doesn't explode to infinity
+    floor = -10
+    raw_log_var = raw_log_var.clamp(floor, 6)  # Clamp such that variance doesn't explode to zero/infinity
     var = torch.nn.functional.softplus(raw_log_var)
+    if var.min() < np.exp(floor+1):
+        print(f"WARNING: Log variance seems to hit the clamped floor")
     return mu, var
+
+def _transform_targets(targets: torch.Tensor) -> torch.Tensor:
+    """
+    Prediction of log‑values to avoid negative values + capture large value range
+    """
+    mu0 = torch.log(targets[:, 0].clamp_min(ml_config.epsilon))
+    mu1 = torch.log(targets[:, 1].clamp_min(ml_config.epsilon))
+    mu2 = torch.log(targets[:, 2].clamp_min(ml_config.epsilon))
+    log_targets = torch.stack([mu0, mu1, mu2], dim=1)
+    return log_targets
 
 def training_loop(model, train_loader, criterion, optimizer):
     model.train()  # Set the model to training mode
@@ -72,14 +85,10 @@ def training_loop(model, train_loader, criterion, optimizer):
         # Forward pass
         outputs = model(inputs)
 
-        # Prediction of log‑values to avoid negative values + capture large value range
-        mu0 = torch.log(targets[:,0].clamp_min(ml_config.epsilon))
-        mu1 = torch.log(targets[:,1].clamp_min(ml_config.epsilon))
-        mu2 = torch.log(targets[:,2].clamp_min(ml_config.epsilon))
-        log_targets = torch.stack([mu0, mu1, mu2], dim=1)
         # loss = criterion(outputs, log_targets)
 
         mu, var = _get_mu_var_from_model(outputs)
+        log_targets = _transform_targets(targets)
         loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
 
         # loss = criterion(outputs, targets)
@@ -104,7 +113,7 @@ def training_loop(model, train_loader, criterion, optimizer):
         total_norm = _get_grad_norm(model)
         total_grad_norms.append(total_norm)
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
 
         optimizer.step()
 
@@ -124,6 +133,7 @@ def training_loop(model, train_loader, criterion, optimizer):
 def validation_loop(model, val_loader, criterion):
     model.eval()  # Set the model to evaluation mode
     running_val_loss = 0.0
+
     with torch.no_grad():  # Disable gradient computation during evaluation
         for inputs, targets in val_loader:
             inputs, targets = inputs.to(device), targets.to(device)
@@ -132,14 +142,16 @@ def validation_loop(model, val_loader, criterion):
             # loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
 
             mu, var = _get_mu_var_from_model(outputs)
-            loss = criterion(mu, targets, var)  # use for GaussianNLLLoss
+            log_targets = _transform_targets(targets)
+            loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
 
             running_val_loss += loss.item() * inputs.size(0)  # Scale by batch size
 
     avg_val_loss = running_val_loss / len(val_loader.dataset)  # Normalize by total samples
+
     return avg_val_loss
 
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=8):
+def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=8, save=True):
     train_metadata = TrainMetadata(*[list() for dummy in fields(TrainMetadata)])
 
     for epoch in range(num_epochs):
@@ -154,9 +166,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
 
-    weight_file = ml_config.data_neural_network + "model_weights.pth"
-    torch.save(model.state_dict(), weight_file)
-    print(f"Best model saved to model_weights.pth")
+    if save:
+        weight_file = ml_config.data_neural_network + "model_weights.pth"
+        torch.save(model.state_dict(), weight_file)
+        print(f"Best model saved to model_weights.pth")
 
     write_metadata_file(train_metadata)
     plot_loss(train_metadata, label = type(criterion).__name__)
@@ -169,25 +182,6 @@ def write_metadata_file(metadata, csv_filename = "loss.csv"):
         all_fields = [getattr(metadata, field.name) for field in fields(metadata)]
         for epoch, values in enumerate(zip(*all_fields), start=1):
             writer.writerow([epoch] + list(values))
-
-def plot_loss(metadata, label = "Loss"):
-    fig, axes = plt.subplots(ncols=1, nrows=2, sharex=True, figsize=(12/2.54, 12/2.54))
-    # Note that running training loss (not plotted here) should start half an epoch
-    # earlier (at 0.5) because it is calculated during training while the gradients
-    # are still updated.
-    axes[0].plot(np.arange(len(metadata.training_losses))+1, metadata.training_losses, label="Training Loss")
-    axes[0].plot(np.arange(len(metadata.validation_losses))+1, metadata.validation_losses, label="Validation Loss")
-    axes[0].set_ylabel(label)
-    axes[0].legend()
-    axes[0].set_yscale('log')
-
-    axes[-1].plot(np.arange(len(metadata.mean_total_grad_norms))+1, metadata.mean_total_grad_norms)
-    axes[-1].set_yscale('log')
-    axes[-1].set_ylabel("Mean Gradient Norms")
-
-    axes[-1].set_xlabel('Epoch')
-    plt.tight_layout()
-    plt.savefig('loss.pdf')
 
 def main():
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
@@ -207,7 +201,7 @@ def main():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=0)
 
-    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=500)
+    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=256, save=True)
 
 
 if __name__ == "__main__":
