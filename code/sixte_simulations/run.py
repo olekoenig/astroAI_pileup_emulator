@@ -36,7 +36,7 @@ from pileupsim import Pileupsim
 
 def arguments():
     parser = argparse.ArgumentParser(description = ("Pile-up simulation setup:\nThis script performs pile-up simulations"
-                                                    "for the eROSITA telescope. WRITE DETAILLED DESCRIPTION!"),
+                                                    "for the eROSITA telescope."),
                                      formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--flux', type=float, help='Absorbed source flux in units of erg/cm^2/s')
     parser.add_argument('--parfile', type=str, help='Parameter file in ISIS notation')

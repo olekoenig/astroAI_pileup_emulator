@@ -16,6 +16,8 @@ class SIXTEConfig():
     """
     Configuration parameters for eROSITA pile-up simulations with SIXTE.
     """
+    PILEUPSIM_DIR = os.getenv("HOME") + "/work/astroai/code/sixte_simulations/"
+
     ACTIVE_TMS = ["1", "2", "3", "4", "6"]  #: Numbers of active TMs in the real observation
     MJDREF = 51543.875  #: [days]
     DT = 0.5  #: Time resolution [s]
@@ -24,6 +26,8 @@ class SIXTEConfig():
     DEC = -37.511361  # [decimal degrees]
     SRCREG = os.getenv("HOME") + "/work/sources/gloria_novae/V1710Sco_src.reg"
     BKGREG = os.getenv("HOME") + "/work/sources/gloria_novae/V1710Sco_bkg.reg"
+
+    ANNULI_REGFILES = ["circle0.reg", "annulus1.reg", "annulus2.reg", "annulus3.reg"]  # Need to fix to full path
 
     # Path to the measured eventfile as produced by eSASS' evtool (used to
     # create attitude file)
@@ -65,7 +69,6 @@ class SIXTEConfig():
     # If we always simulate the same slew, we don't need to always compute the
     # GTI file (ero_vis) and write RMF/ARF (srctool) but can calculate it
     # once and use it as "master files"
-    PILEUPSIM_DIR = os.getenv("HOME") + "/work/sources/gloria_novae/"
     MASTER_ARF = PILEUPSIM_DIR + "srctool_master.arf"  # not needed if TODO=ALL in srctool
     MASTER_RMF = PILEUPSIM_DIR + "srctool_master.rmf"  # not needed if TODO=ALL in srctool
     ATTITUDE_FILE = PILEUPSIM_DIR + "master.att"  # created by write_attitude_and_gti

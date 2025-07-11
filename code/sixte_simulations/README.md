@@ -12,6 +12,10 @@ This set of scripts enables running SIXTE simulations for a given spectrum and f
 
 Please adapt the configuration file to your system (in particular the storage areas).
 
+### sixtesoft: python wrapper around SIXTE
+
+Currently (2025-07-11) part of the sixte repository:
+http://www.sternwarte.uni-erlangen.de/gitlab/sixte/sixte.git/test/data/scripts/python_wrapper/sixtesoft/
 
 ### Example call for parallelizaion
 
