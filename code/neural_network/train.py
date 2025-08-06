@@ -5,11 +5,13 @@ from dataclasses import dataclass,fields
 import torch
 from torch.utils.data import DataLoader
 
-from neuralnetwork import ConvSpectraNet
+# from neuralnetwork import ConvSpectraNet
 # from neuralnetwork import pileupNN_variance_estimator
 from data import load_and_split_dataset
 from config import MLConfig
 from subs import plot_loss
+
+from normalizing_flow import ConvSpectraFlow
 
 device = 'cpu'  # torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ml_config = MLConfig()
@@ -83,15 +85,16 @@ def training_loop(model, train_loader, criterion, optimizer):
         inputs, targets = inputs.to(device), targets.to(device)
 
         # Forward pass
-        outputs = model(inputs)
+        # outputs = model(inputs)
 
         # loss = criterion(outputs, log_targets)
 
-        mu, var = _get_mu_var_from_model(outputs)
-        log_targets = _transform_targets(targets)
-        loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
-
+        # mu, var = _get_mu_var_from_model(outputs)
+        # log_targets = _transform_targets(targets)
+        # loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
         # loss = criterion(outputs, targets)
+
+        loss = model.nll(inputs, targets)
 
         # Add custom regularization on last layer's pre-activation outputs
         # (to penalize negative values at high energies):
@@ -125,8 +128,10 @@ def training_loop(model, train_loader, criterion, optimizer):
     running_train_loss = running_train_loss / len(train_loader.dataset)
     mean_total_grad_norm = np.mean(total_grad_norms)
 
-    metadata = EpochMetadata(running_train_loss = running_train_loss, mean_total_grad_norm = mean_total_grad_norm,
-                             batch_losses = batch_losses, total_grad_norms = total_grad_norms)
+    metadata = EpochMetadata(running_train_loss = running_train_loss,
+                             mean_total_grad_norm = mean_total_grad_norm,
+                             batch_losses = batch_losses,
+                             total_grad_norms = total_grad_norms)
 
     return metadata
 
@@ -140,10 +145,21 @@ def validation_loop(model, val_loader, criterion):
             outputs = model(inputs)
 
             # loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
+            loss = model.nll(inputs, targets)  # use for ConvSpectraFlow
 
-            mu, var = _get_mu_var_from_model(outputs)
-            log_targets = _transform_targets(targets)
-            loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
+            # mu, var = _get_mu_var_from_model(outputs)
+            # log_targets = _transform_targets(targets)
+            # loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
+
+            # ################################################
+            # Manual calculation of loss
+            # term1 = 0.5 * torch.log(var)
+            # term2 = 0.5 * ((mu - log_targets) ** 2 / var)
+            # mean_term1 = term1.mean().detach()
+            # mean_term2 = term2.mean().detach()
+            # term1s += mean_term1.item() * inputs.size(0)
+            # term2s += mean_term2.item() * inputs.size(0)
+            # ################################################
 
             running_val_loss += loss.item() * inputs.size(0)  # Scale by batch size
 
@@ -187,21 +203,23 @@ def main():
     train_dataset, val_dataset, test_dataset = load_and_split_dataset()
     print(f"Number of training samples: {len(train_dataset)}")
 
-    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True, num_workers=32)
-    val_loader = DataLoader(val_dataset, batch_size=512, shuffle=False, num_workers=32)
+    train_loader = DataLoader(train_dataset, batch_size=ml_config.batch_size, shuffle=True, num_workers=32)
+    val_loader = DataLoader(val_dataset, batch_size=ml_config.batch_size, shuffle=False, num_workers=32)
 
-    model = ConvSpectraNet()
+    model = ConvSpectraFlow()
+    # model = ConvSpectraNet()
     model.to(device)
 
     model.load_state_dict(torch.load(ml_config.data_neural_network + "model_weights.pth", map_location="cpu"))
 
     # criterion = torch.nn.MSELoss()  # use for parameter estimator
     # criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')  # use for spectral estimator
-    criterion = torch.nn.GaussianNLLLoss(eps=ml_config.epsilon)  # use for parameter + variance estimator
+    # criterion = torch.nn.GaussianNLLLoss(eps=ml_config.epsilon, reduction='mean')  # use for parameter + variance estimator
+    criterion = False  # use for ConvSpectraFlow
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=0)
+    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=1024, save=True)
 
-    train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=256, save=True)
 
 
 if __name__ == "__main__":
