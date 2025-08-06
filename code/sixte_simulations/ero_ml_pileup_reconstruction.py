@@ -5,7 +5,9 @@ import os
 # Run it in parallel with:
 # cat batch.sh | xargs -P 30 -I {} tcsh -c "{}"
 
-import config
+from config import SIXTEConfig, MLConfig
+sixte_config = SIXTEConfig()
+ml_config = MLConfig()
 
 def write_bbody_parfile(nh, ktbb):
     """
@@ -20,7 +22,7 @@ def write_bbody_parfile(nh, ktbb):
     .. ToDo: Is there a way to do this without raw writing, e.g. with pyspec?
 
     """
-    parfile = "{}{:f}e22_{:f}eV.par".format(config.ISISPARFILEDIR, nh, ktbb)
+    parfile = "{}{:f}e22_{:f}eV.par".format(sixte_config.ISISPARFILEDIR, nh, ktbb)
     with open(parfile, 'w') as fp:
         fp.write("tbnew_simple(1)*bbody(1)\n")
         fp.write(" idx  param           tie-to  freeze         value         min         max\n")
@@ -31,7 +33,7 @@ def write_bbody_parfile(nh, ktbb):
 
 def generate_latin_hypercube(n_points, flux_min, flux_max, kt_min,
                              kt_max, nh_min, nh_max):
-    rng = np.random.default_rng(config.DATALOADER_RANDOM_SEED)
+    rng = np.random.default_rng(ml_config.dataloader_random_seed)
     sampler = qmc.LatinHypercube(d = 3, rng=rng)
     sample = sampler.random(n = n_points)
     l_bounds = [np.log(flux_min), kt_min, nh_min]
