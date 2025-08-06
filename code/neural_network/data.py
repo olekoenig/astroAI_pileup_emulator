@@ -20,10 +20,23 @@ class PileupDataset(Dataset):
         return len(self.input_files)
 
     def __getitem__(self, idx):
-        input_data = fits.getdata(self.input_files[idx])
+        input_data_circle0 = fits.getdata(self.input_files[idx])
+        input_data_annulus1 = fits.getdata(self.input_files[idx].replace('circle0','annulus1'))
+        input_data_annulus2 = fits.getdata(self.input_files[idx].replace('circle0','annulus2'))
+        input_data_annulus3 = fits.getdata(self.input_files[idx].replace('circle0','annulus3'))
+
         # input_channels = torch.tensor(np.array(input_data["CHANNEL"], dtype=np.int32)); torch.stack([input_channels, input_counts], dim=0)
-        input_counts = np.array(input_data["COUNTS"], dtype=np.float32)
-        input_tensor = torch.tensor(input_counts)
+
+        input_counts_circle0 = np.array(input_data_circle0["COUNTS"], dtype=np.float32)
+        input_counts_annulus1 = np.array(input_data_annulus1["COUNTS"], dtype=np.float32)
+        input_counts_annulus2 = np.array(input_data_annulus2["COUNTS"], dtype=np.float32)
+        input_counts_annulus3 = np.array(input_data_annulus3["COUNTS"], dtype=np.float32)
+        counts = [torch.from_numpy(input_counts_circle0),
+                  torch.from_numpy(input_counts_annulus1),
+                  torch.from_numpy(input_counts_annulus2),
+                  torch.from_numpy(input_counts_annulus3)]
+
+        input_tensor = torch.stack(counts, dim=0)
 
         kt = fits.getval(self.input_files[idx], "KT", ext=1)
         src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / 1e-12
@@ -63,7 +76,7 @@ def get_src_flux_from_filename(fname):
     return float(src_flux.split("Em10")[0]) * 1e-10
 
 def load_and_split_dataset():
-    piledup = glob.glob(sixte_config.SPECDIR + "*cgs*.fits")
+    piledup = glob.glob(sixte_config.SPECDIR + "*cgs*piledup_circle0.fits")
 
     # Perform filtering on source flux
     # piledup = [fname for fname in piledup if get_src_flux_from_filename(fname) <= 1e-10]
@@ -74,9 +87,6 @@ def load_and_split_dataset():
 
     #target_transform = lambda t: torch.clamp(t, min=1e-4)
     dataset = PileupDataset(piledup, nonpiledup, target_transform=None)
-
-    if len(dataset[0][0]) != ml_config.dim_input_parameters:
-        exit(f"Input dimension must be 1024 but is {dataset[0][0]}.")
 
     train_size = int(0.7 * len(dataset))
     val_size = int(0.15 * len(dataset))
