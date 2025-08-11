@@ -11,10 +11,10 @@ sixte_config = SIXTEConfig()
 ml_config = MLConfig()
 
 class PileupDataset(Dataset):
-    def __init__(self, input_files, target_files, target_transform=None):
+    def __init__(self, input_files, target_files):
+        assert len(input_files) == len(target_files)
         self.input_files = input_files
         self.target_files = target_files
-        # self.target_transform = target_transform
 
     def __len__(self):
         return len(self.input_files)
@@ -24,8 +24,6 @@ class PileupDataset(Dataset):
         input_data_annulus1 = fits.getdata(self.input_files[idx].replace('circle0','annulus1'))
         input_data_annulus2 = fits.getdata(self.input_files[idx].replace('circle0','annulus2'))
         input_data_annulus3 = fits.getdata(self.input_files[idx].replace('circle0','annulus3'))
-
-        # input_channels = torch.tensor(np.array(input_data["CHANNEL"], dtype=np.int32)); torch.stack([input_channels, input_counts], dim=0)
 
         input_counts_circle0 = np.array(input_data_circle0["COUNTS"], dtype=np.float32)
         input_counts_annulus1 = np.array(input_data_annulus1["COUNTS"], dtype=np.float32)
@@ -39,7 +37,7 @@ class PileupDataset(Dataset):
         input_tensor = torch.stack(counts, dim=0)
 
         kt = fits.getval(self.input_files[idx], "KT", ext=1)
-        src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / 1e-12
+        src_flux = fits.getval(self.input_files[idx], "SRC_FLUX", ext=1) / ml_config.flux_factor
         nh = fits.getval(self.input_files[idx], "NH", ext=1)
 
         target_tensor = torch.tensor([kt, src_flux, nh])
@@ -56,9 +54,6 @@ class PileupDataset(Dataset):
         input_tensor = torch.tensor(input_counts)
         target_tensor = torch.tensor(target_counts)
 
-        # if self.target_transform:
-        #     input_tensor = self.target_transform(input_tensor)
-
         return input_tensor, target_tensor
 
     def get_filenames(self, idx):
@@ -66,10 +61,20 @@ class PileupDataset(Dataset):
 
 
 class SubsetWithFilenames(Subset):
+    def __init__(self, dataset, indices):
+        super().__init__(dataset, indices)
+        # Create look-up table for file indices after random_split
+        self.filenames = [(dataset.input_files[i], dataset.target_files[i]) for i in self.indices]
+        self.index_by_input  = {inp: i for i, (inp, _) in enumerate(self.filenames)}
+        self.index_by_target = {tgt: i for i, (_, tgt) in enumerate(self.filenames)}
+        
     def get_filenames(self, idx):
-        """Retrieve filenames using the parent dataset."""
         return self.dataset.get_filenames(self.indices[idx])
 
+    def index_of_input(self, path: str) -> int:
+        return self.index_by_input[path]
+
+    
 
 def get_src_flux_from_filename(fname):
     src_flux = re.findall("[0-9]+.[0-9]+Em10", fname)[0]
@@ -85,8 +90,7 @@ def load_and_split_dataset():
 
     torch.manual_seed(ml_config.dataloader_random_seed)
 
-    #target_transform = lambda t: torch.clamp(t, min=1e-4)
-    dataset = PileupDataset(piledup, nonpiledup, target_transform=None)
+    dataset = PileupDataset(piledup, nonpiledup)
 
     train_size = int(0.7 * len(dataset))
     val_size = int(0.15 * len(dataset))
@@ -105,7 +109,7 @@ def main():
     # Do a few tests for trouble-shooting when running this file individually
     def test1():
         from torch.utils.data import DataLoader
-        train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+        train_dataset, val_dataset, test_dataset = load_and_split_dataset()        
         full_train_loader = DataLoader(train_dataset, batch_size=len(train_dataset), shuffle=False)  # treat as one big batch to get min/max
         _, targets = next(iter(full_train_loader))
         kt_vals = targets[:, 0]
@@ -113,7 +117,7 @@ def main():
         nh_vals = targets[:, 2]
 
         print(f"kT min: {kt_vals.min().item()}, max: {kt_vals.max().item()}")
-        print(f"src_flux min: {src_flux_vals.min().item()}, max: {src_flux_vals.max().item()} e-12 cgs")
+        print(f"src_flux min: {src_flux_vals.min().item()}, max: {src_flux_vals.max().item()} {ml_config.flux_factor:%e} cgs")
         print(f"nh min: {nh_vals.min().item()}, max: {nh_vals.max().item()}")
 
     def test2():
@@ -123,7 +127,14 @@ def main():
         dataset = PileupDataset(piledup, nonpiledup)
         print(dataset.__getitem__(0))
 
-    test1()
+    def test_filename_indexing():
+        from torch.utils.data import DataLoader
+        train_dataset, val_dataset, test_dataset = load_and_split_dataset()
+        input_name = "/pool/burg1/astroai/pileup/sims/spec_piledup/1.223821Em10cgs_0.981670nH_0.139405kT_piledup_circle0.fits"
+        idx = test_dataset.index_of_input(input_name)
+        (inp, target) = test_dataset[idx]
+
+    test_filename_indexing()
 
 if __name__ == "__main__":
     main()
