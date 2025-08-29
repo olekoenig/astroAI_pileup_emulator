@@ -4,7 +4,6 @@ import torch
 from astropy.io import fits
 import numpy as np
 import pandas as pd
-import os
 import random
 from typing import Tuple
 
@@ -20,101 +19,6 @@ sixte_config = SIXTEConfig()
 plt.rcParams['text.usetex'] = True
 plt.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
 
-def setup_plot(plot_input_data_only = False):
-    if plot_input_data_only == True:
-        fig, axes = plt.subplots(1, 1, figsize=(10 / 2.54, 7 / 2.54), dpi=300)
-        axes.set_ylabel('Counts')
-        axes.set_xscale('log')
-        axes.set_yscale('log')
-        axes.set_xlim(20, 500)
-    else:
-        fig, axes = plt.subplots(2, 1, figsize=(10/2.54, 7/2.54), dpi=300,
-                                 sharex=True, gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
-        axes[0].set_ylabel('Counts')
-        axes[0].set_xscale('log')
-        axes[0].set_yscale('log')
-        axes[0].set_xlim(20, 500)
-
-        axes[1].axhline(y=1, color='gray', linestyle='--', linewidth=1)  # Reference line at ratio = 1
-        axes[1].set_xlabel('Channel')
-        axes[1].set_xscale('log')
-        axes[1].set_xlim(20, 500)
-
-    return fig, axes
-
-def plot_ratio(axis, data1, data2, data1_label = "Target", data2_label = "predicted"):
-    ratio = torch.where(data2 != 0, data1 / data2, torch.nan)
-    axis.plot(ratio, color='black')
-    axis.set_ylabel(fr'$\frac{{\text{{{data1_label}}}}}{{\text{{{data2_label}}}}}$')
-    axis.set_ylim(0, 2)
-    return axis
-
-def _unite_pdfs(outfiles, outfilename = "testdata.pdf", remove = True):
-    outstr = " ".join(outfiles)
-    os.system(f"pdfunite {outstr} {outfilename}")
-    print(f"Wrote {outfilename}")
-    if remove:
-        [os.system(f"rm {fp}") for fp in outfiles]
-
-def evaluate_on_test_spectrum(model, test_dataset, plot_input_data_only = False):
-    indices = [int(random.uniform(0, len(test_dataset)-1)) for _ in range(20)]
-    outfiles = []
-
-    for index in indices:
-        input_data, target_data = test_dataset[index]
-        input_fname, target_fname = test_dataset.get_filenames(index)
-
-        fix, axes = setup_plot(plot_input_data_only = plot_input_data_only)
-        axes.set_title(fr"\small {os.path.basename(input_fname)}")
-        axes.plot(input_data[0, :], label=r"Input 0--30 arcsec", linewidth=1)
-        axes.plot(input_data[1, :], label=r"Input 30--60 arcsec", linewidth=1)
-        axes.plot(input_data[2, :], label=r"Input 60--120 arcsec", linewidth=1)
-        axes.plot(input_data[3, :], label=r"Input 120--240 arcsec", linewidth=1)
-
-        if plot_input_data_only == False:
-            model.eval()
-            with torch.no_grad():  # Disable gradient calculation for inference
-                predicted_output = model(input_data.unsqueeze(0))[0]
-
-            # Bug in normalization! Hack: rescale for now
-            predicted_output *= max(input_data) / max(predicted_output)
-            target_data *= max(input_data) / max(target_data)
-            ymax = max(predicted_output)
-
-            axes[0].plot(predicted_output, label="Predicted (rescaled)", linewidth=1)
-            axes[0].plot(target_data, label="Target (rescaled)", linewidth=1)
-            axes[0].set_ylim(0.7, ymax + 0.1 * ymax)
-
-            axes[1] = plot_ratio(axes[1], target_data, predicted_output, data1_label="Target")
-            axes[0].legend()
-        else:
-            axes.legend()
-
-        outfile = f"outfiles/testdata_{index}.pdf"
-        outfiles.append(outfile)
-        plt.tight_layout()
-        plt.savefig(outfile)
-
-    _unite_pdfs(outfiles)
-
-def write_pha_file(channels, predicted_output, output_fname):
-    de_piledup_spectrum = predicted_output.numpy()  # .astype(count_spectrum.dtype)
-
-    primary_hdu = fits.PrimaryHDU()
-
-    header = fits.Header()
-    header["BACKFILE"] = "NONE"
-    header["RESPFILE"] = sixte_config.MASTER_RMF
-    header["ANCRFILE"] = sixte_config.MASTER_ARF
-
-    columns = fits.ColDefs([
-        fits.Column(name="CHANNEL", format="J", array=channels),
-        fits.Column(name="COUNTS", format="J", array=de_piledup_spectrum)
-    ])
-    table_hdu = fits.BinTableHDU.from_columns(columns, header=header, name="SPECTRUM")
-
-    hdulist = fits.HDUList([primary_hdu, table_hdu])
-    hdulist.writeto(output_fname, overwrite=True)
 
 def evaluate_on_real_spectrum(model, real_pha_filename, out_pha_file = None):
     with fits.open(real_pha_filename) as hdulist:
@@ -128,16 +32,16 @@ def evaluate_on_real_spectrum(model, real_pha_filename, out_pha_file = None):
             predicted_spectrum = model(real_dataset.unsqueeze(0))
             print(np.exp(predicted_spectrum))
 
-        # fix, axes = setup_plot()
+        # fix, axes = _setup_plot()
         # axes[0].plot(real_dataset, label="eROSITA spectrum")
         # axes[0].plot(predicted_spectrum, label="Predicted by NN")
         # axes[0].legend()
-        # axes[1] = plot_ratio(axes[1], real_dataset, predicted_spectrum, data1_label="Real", data2_label="Predicted")
+        # axes[1] = _plot_ratio(axes[1], real_dataset, predicted_spectrum, data1_label="Real", data2_label="Predicted")
         # plt.tight_layout()
         # plt.show()
 
         # if out_pha_file is not None:
-        #     write_pha_file(channels, predicted_spectrum, out_pha_file)
+        #     _write_pha_file(channels, predicted_spectrum, out_pha_file)
 
 def _get_params_from_output(output: torch.Tensor) -> Tuple[float, float, float, float, float, float]:
     """Split parameter means (first numbers) and log variance (last half of numbers).
@@ -239,12 +143,11 @@ def evaluate_parameter_prediction(model, test_dataset):
 
 def plot_2d_posteriors(model, dataset, num_samples=10000, device='cpu'):
     model.eval()
-    indices = [int(random.uniform(0, len(dataset) - 1)) for _ in range(20)]
+    indices = [int(random.uniform(0, len(dataset) - 1)) for _ in range(50)]
     outfiles = []
     names = [LABEL_DICT["kt"], LABEL_DICT["src_flux"], LABEL_DICT["nh"]]
 
     for idx in indices:
-        idx=5
         x, y_true = dataset[idx]
         x = x.unsqueeze(0).to(device)  # add batch‐dim
 
@@ -253,14 +156,24 @@ def plot_2d_posteriors(model, dataset, num_samples=10000, device='cpu'):
         with torch.no_grad():
             q_dist = model(x)
             samples = q_dist.sample((num_samples,))
+
         samples = samples.squeeze(1).cpu().numpy()  # remove batch dimension
+        samples = np.exp(samples)  # re-transform target from log space to actual values
 
-        figure = corner.corner(samples, labels=names,
-                               show_titles=True, title_kwargs={"fontsize": 12},
+        samples[:, 1] *= ml_config.flux_factor
+        y_true[1] *= ml_config.flux_factor
+
+        figure = corner.corner(samples, labels=names, smooth=1,
+                               show_titles=False, title_kwargs={"fontsize": 12},
                                bins=100, truths=y_true, range=[0.999, 0.999, 0.999])
+        figure.suptitle(os.path.basename(input_fname))
 
-        figure.savefig("posteriors.pdf")
-        exit(0)
+        outfile = f"outfiles/testdata_{idx}.pdf"
+        outfiles.append(outfile)
+        plt.tight_layout()
+        plt.savefig(outfile)
+
+    unite_pdfs(outfiles, outfilename="posteriors.pdf")
 
 
 def main():
@@ -279,7 +192,7 @@ def main():
 
     def plot_loss_from_csv():
         metadata = pd.read_csv("../neural_network/loss.csv")
-        plot_loss(metadata, label="Loss")
+        plot_loss(metadata, label=r"Loss $[-\log q(\theta | x)]$")
 
     # plot_loss_from_csv()
     plot_testdata()

@@ -11,7 +11,7 @@ from data import load_and_split_dataset
 from config import MLConfig
 from subs import plot_loss
 
-from normalizing_flow import ConvSpectraFlow
+from neuralnetwork import ConvSpectraFlow
 
 device = 'cpu'  # torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ml_config = MLConfig()
@@ -90,11 +90,11 @@ def training_loop(model, train_loader, criterion, optimizer):
         # loss = criterion(outputs, log_targets)
 
         # mu, var = _get_mu_var_from_model(outputs)
-        # log_targets = _transform_targets(targets)
+        log_targets = _transform_targets(targets)
         # loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
         # loss = criterion(outputs, targets)
 
-        loss = model.nll(inputs, targets)
+        loss = model.nll(inputs, log_targets)
 
         # Add custom regularization on last layer's pre-activation outputs
         # (to penalize negative values at high energies):
@@ -145,11 +145,12 @@ def validation_loop(model, val_loader, criterion):
             outputs = model(inputs)
 
             # loss = criterion(outputs, targets)  # use for MSELoss / PoissonNLLLoss
-            loss = model.nll(inputs, targets)  # use for ConvSpectraFlow
 
             # mu, var = _get_mu_var_from_model(outputs)
-            # log_targets = _transform_targets(targets)
+            log_targets = _transform_targets(targets)
             # loss = criterion(mu, log_targets, var)  # use for GaussianNLLLoss
+
+            loss = model.nll(inputs, log_targets)  # use for ConvSpectraFlow
 
             # ################################################
             # Manual calculation of loss
@@ -212,12 +213,12 @@ def main():
 
     model.load_state_dict(torch.load(ml_config.data_neural_network + "model_weights.pth", map_location="cpu"))
 
-    # criterion = torch.nn.MSELoss()  # use for parameter estimator
+    criterion = torch.nn.MSELoss()  # use for parameter estimator
     # criterion = torch.nn.PoissonNLLLoss(log_input=False, full=True, reduction='mean')  # use for spectral estimator
     # criterion = torch.nn.GaussianNLLLoss(eps=ml_config.epsilon, reduction='mean')  # use for parameter + variance estimator
     criterion = False  # use for ConvSpectraFlow
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=0)
     train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=1024, save=True)
 
 

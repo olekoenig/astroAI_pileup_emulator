@@ -2,7 +2,7 @@ import torch
 import zuko
 
 from config import MLConfig
-config = MLConfig()
+ml_config = MLConfig()
 
 
 class ConvTrunk(torch.nn.Module):
@@ -42,7 +42,7 @@ class ConvSpectraFlow(torch.nn.Module):
         return self.nsf(c)
 
 class ConvSpectraNet(torch.nn.Module):
-    def __init__(self, in_channels: int = 4, output_size: int = config.dim_output_parameters * 2):
+    def __init__(self, in_channels: int = 4, output_size: int = ml_config.dim_output_parameters * 2):
         super().__init__()
         self.conv1 = torch.nn.Conv1d(in_channels, 8, kernel_size=7, padding=3)
         self.pool1 = torch.nn.MaxPool1d(kernel_size=4)
@@ -73,9 +73,9 @@ class ConvSpectraNet(torch.nn.Module):
         return x
 
 class pileupNN_parameter_estimator(torch.nn.Module):
-    def __init__(self, input_size=config.dim_input_parameters,
+    def __init__(self, input_size=ml_config.dim_input_parameters,
                  hidden_size=128,
-                 output_size=config.dim_output_parameters):
+                 output_size=ml_config.dim_output_parameters):
         super(pileupNN_parameter_estimator, self).__init__()
         self.fc1 = torch.nn.Linear(input_size, hidden_size)
         self.fc2 = torch.nn.Linear(hidden_size, hidden_size)
@@ -92,9 +92,9 @@ class pileupNN_parameter_estimator(torch.nn.Module):
         return x
 
 class PileupNN_spectral_estimator(torch.nn.Module):
-    def __init__(self, input_size=config.dim_input_parameters,
+    def __init__(self, input_size=ml_config.dim_input_parameters,
                  hidden_size=256,
-                 output_size=config.dim_input_parameters):
+                 output_size=ml_config.dim_input_parameters):
         super().__init__()
         self.fc1 = torch.nn.Linear(input_size, hidden_size)
         self.fc2 = torch.nn.Linear(hidden_size, hidden_size)
@@ -108,14 +108,14 @@ class PileupNN_spectral_estimator(torch.nn.Module):
         x = self.activation(self.fc2(x))
         x = self.activation(self.fc3(x))
         x = self.fc4(x)  # Linear combination
-        x = self.activation(x)  # activation on final output to ensure non-negative counts
+        x = self.activation(x)  # activation on final output to ensure non-negative counts (Poisson likelihood)
         return x
 
 class pileupNN_variance_estimator(torch.nn.Module):
-    def __init__(self, input_size=config.dim_input_parameters,
+    def __init__(self, input_size=ml_config.dim_input_parameters,
                  hidden_size=256,
-                 output_size=config.dim_output_parameters * 2):
-        """Output dimensions: First half are the model parameters, the last half are the log variance."""
+                 output_size=ml_config.dim_output_parameters * 2):
+        # Output dimensions: First half are the model parameters, the last half are the log variance
         super(pileupNN_variance_estimator, self).__init__()
         self.fc1 = torch.nn.Linear(input_size, hidden_size)
         self.fc2 = torch.nn.Linear(hidden_size, hidden_size)
@@ -128,5 +128,5 @@ class pileupNN_variance_estimator(torch.nn.Module):
         x = self.activation(self.fc1(x))
         x = self.activation(self.fc2(x))
         x = self.activation(self.fc3(x))
-        x = self.fc4(x)  # Linear combination
+        x = self.fc4(x)
         return x
