@@ -1,4 +1,4 @@
-# Pile-up emulator
+# Modeling X-ray pile-up with machine learning
 
 Author: Ole Koenig, Harvard-Smithsonian Center for Astrophysics (ole.koenig@cfa.harvard.edu)
 
